@@ -43,15 +43,6 @@ ViewModel.component = function (id, Ctor) {
 }
 
 /**
- *  Allows user to register/retrieve a Custom element constructor
- */
-ViewModel.element = function (id, Ctor) {
-    if (!Ctor) return utils.elements[id]
-    utils.elements[id] = utils.toConstructor(Ctor)
-    return this
-}
-
-/**
  *  Allows user to register/retrieve a template partial
  */
 ViewModel.partial = function (id, partial) {
@@ -83,9 +74,11 @@ function extend (options) {
     options = inheritOptions(options, ParentVM.options, true)
     utils.processOptions(options)
 
-    var ExtendedVM = function (opts) {
-        opts = inheritOptions(opts, options, true)
-        ParentVM.call(this, opts)
+    var ExtendedVM = function (opts, asParent) {
+        if (!asParent) {
+            opts = inheritOptions(opts, options, true)
+        }
+        ParentVM.call(this, opts, true)
     }
 
     // inherit prototype props
@@ -93,11 +86,14 @@ function extend (options) {
     utils.defProtected(proto, 'constructor', ExtendedVM)
 
     // copy prototype props
-    var protoMixins = options.proto
-    if (protoMixins) {
-        for (var key in protoMixins) {
-            if (!(key in ViewModel.prototype)) {
-                proto[key] = protoMixins[key]
+    var methods = options.methods
+    if (methods) {
+        for (var key in methods) {
+            if (
+                !(key in ViewModel.prototype) &&
+                typeof methods[key] === 'function'
+            ) {
+                proto[key] = methods[key]
             }
         }
     }
@@ -112,7 +108,7 @@ function extend (options) {
 /**
  *  Inherit options
  *
- *  For options such as `scope`, `vms`, `directives`, 'partials',
+ *  For options such as `data`, `vms`, `directives`, 'partials',
  *  they should be further extended. However extending should only
  *  be done at top level.
  *  
@@ -126,14 +122,33 @@ function inheritOptions (child, parent, topLevel) {
     child = child || utils.hash()
     if (!parent) return child
     for (var key in parent) {
-        if (key === 'el' || key === 'proto') continue
-        if (!child[key]) { // child has priority
-            child[key] = parent[key]
-        } else if (topLevel && utils.typeOf(child[key]) === 'Object') {
-            inheritOptions(child[key], parent[key], false)
+        if (key === 'el' || key === 'methods') continue
+        var val = child[key],
+            parentVal = parent[key],
+            type = utils.typeOf(val)
+        if (topLevel && type === 'Function' && parentVal) {
+            // merge hook functions
+            child[key] = mergeHook(val, parentVal)
+        } else if (topLevel && type === 'Object') {
+            // merge toplevel object options
+            inheritOptions(val, parentVal)
+        } else if (val === undefined) {
+            // inherit if child doesn't override
+            child[key] = parentVal
         }
     }
     return child
+}
+
+/**
+ *  Merge hook functions
+ *  so parent hooks also get called
+ */
+function mergeHook (fn, parentFn) {
+    return function (opts) {
+        parentFn.call(this, opts)
+        fn.call(this, opts)
+    }
 }
 
 /**
@@ -141,12 +156,12 @@ function inheritOptions (child, parent, topLevel) {
  *  that are used in compilation.
  */
 var specialAttributes = [
-    'id',
     'pre',
     'text',
     'repeat',
     'partial',
     'component',
+    'component-id',
     'transition'
 ]
 

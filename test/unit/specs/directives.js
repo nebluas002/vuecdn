@@ -557,7 +557,7 @@ describe('UNIT: Directives', function () {
             mock(testId, '<span v-pre><strong>{{lol}}</strong><a v-text="hi"></a></span>')
             var t = new Vue({
                 el: '#' + testId,
-                scope: {
+                data: {
                     lol: 'heyhey',
                     hi: 'hohoho'
                 }
@@ -569,19 +569,61 @@ describe('UNIT: Directives', function () {
 
     })
 
-    describe('id', function () {
+    describe('component', function () {
+        
+        it('should work with no args', function () {
+            var testId = 'component-test'
+            mock(testId, '<div v-component="' + testId + '"></div>')
+            var t = new Vue({
+                el: '#' + testId,
+                data: {
+                    msg: '123'
+                },
+                components: {
+                    'component-test': {
+                        template: '<span>{{msg}}</span>'
+                    }
+                }
+            })
+            assert.strictEqual(t.$el.querySelector('span').textContent, '123')
+        })
+
+        it('should work with arg (passed-in model from parent)', function () {
+            var testId = 'component-test-2'
+            mock(testId, '<div v-component="' + testId + ':options.test"></div>')
+            var t = new Vue({
+                el: '#' + testId,
+                data: {
+                    options: {
+                        test: {
+                            msg: '123'
+                        }
+                    }
+                },
+                components: {
+                    'component-test-2': {
+                        template: '<span>{{msg}}</span>'
+                    }
+                }
+            })
+            assert.strictEqual(t.$el.querySelector('span').textContent, '123')
+        })
+
+    })
+
+    describe('component-id', function () {
         
         it('should register a VM isntance on its parent\'s $', function () {
             var called = false
             var Child = Vue.extend({
-                proto: {
+                methods: {
                     test: function () {
                         called = true
                     }
                 }
             })
             var t = new Vue({
-                template: '<div v-component="child" v-id="hihi"></div>',
+                template: '<div v-component="child" v-component-id="hihi"></div>',
                 components: {
                     child: Child
                 }
@@ -601,7 +643,7 @@ function mockDirective (dirName, tag, type) {
     var dir = Vue.directive(dirName),
         ret = {
             binding: { compiler: { vm: {} } },
-            compiler: { vm: {}, options: {} },
+            compiler: { vm: {}, options: {}, execHook: function () {}},
             el: document.createElement(tag || 'div')
         }
     if (typeof dir === 'function') {

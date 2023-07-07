@@ -7,13 +7,13 @@ var Emitter     = require('./emitter'),
     TextParser  = require('./text-parser'),
     DepsParser  = require('./deps-parser'),
     ExpParser   = require('./exp-parser'),
-    transition  = require('./transition'),
     // cache deps ob
     depsOb      = DepsParser.observer,
     // cache methods
     slice       = Array.prototype.slice,
     log         = utils.log,
     makeHash    = utils.hash,
+    extend      = utils.extend,
     def         = utils.defProtected,
     hasOwn      = Object.prototype.hasOwnProperty
 
@@ -24,43 +24,33 @@ var Emitter     = require('./emitter'),
 function Compiler (vm, options) {
 
     var compiler = this
-
     // indicate that we are intiating this instance
     // so we should not run any transitions
     compiler.init = true
 
-    // extend options
+    // process and extend options
     options = compiler.options = options || makeHash()
     utils.processOptions(options)
-    utils.extend(compiler, options.compilerOptions)
+
+    // copy data, methods & compiler options
+    var data = compiler.data = options.data || {}
+    extend(vm, data, true)
+    extend(vm, options.methods, true)
+    extend(compiler, options.compilerOptions)
 
     // initialize element
     var el = compiler.setupElement(options)
     log('\nnew VM instance:', el.tagName, '\n')
 
-    // copy scope properties to vm
-    var scope = options.scope
-    if (scope) utils.extend(vm, scope, true)
-
+    // set compiler properties
     compiler.vm  = vm
-    def(vm, '$', makeHash())
-    def(vm, '$el', el)
-    def(vm, '$compiler', compiler)
-
-    // keep track of directives and expressions
-    // so they can be unbound during destroy()
     compiler.dirs = []
     compiler.exps = []
-    compiler.childCompilers = [] // keep track of child compilers
-    compiler.emitter = new Emitter() // the emitter used for nested VM communication
+    compiler.computed = []
+    compiler.childCompilers = []
+    compiler.emitter = new Emitter()
 
-    // Store things during parsing to be processed afterwards,
-    // because we want to have created all bindings before
-    // observing values / parsing dependencies.
-    var observables = compiler.observables = [],
-        computed    = compiler.computed    = []
-
-    // prototypal inheritance of bindings
+    // inherit parent bindings
     var parent = compiler.parentCompiler
     compiler.bindings = parent
         ? Object.create(parent.bindings)
@@ -69,10 +59,17 @@ function Compiler (vm, options) {
         ? getRoot(parent)
         : compiler
 
+    // set inenumerable VM properties
+    def(vm, '$', makeHash())
+    def(vm, '$el', el)
+    def(vm, '$compiler', compiler)
+    def(vm, '$root', compiler.rootCompiler.vm)
+
     // set parent VM
     // and register child id on parent
-    var childId = utils.attr(el, 'id')
+    var childId = utils.attr(el, 'component-id')
     if (parent) {
+        parent.childCompilers.push(compiler)
         def(vm, '$parent', parent.vm)
         if (childId) {
             compiler.childId = childId
@@ -83,45 +80,53 @@ function Compiler (vm, options) {
     // setup observer
     compiler.setupObserver()
 
-    // call user init. this will capture some initial values.
-    if (options.init) {
-        options.init.apply(vm, options.args || [])
-    }
+    // beforeCompile hook
+    compiler.execHook('beforeCompile', 'created')
 
-    // create bindings for keys set on the vm by the user
-    var key, keyPrefix
-    for (key in vm) {
-        keyPrefix = key.charAt(0)
-        if (keyPrefix !== '$' && keyPrefix !== '_') {
-            compiler.createBinding(key)
-        }
-    }
+    // the user might have set some props on the vm 
+    // so copy it back to the data...
+    extend(data, vm)
 
+    // observe the data
+    Observer.observe(data, '', compiler.observer)
+    
     // for repeated items, create an index binding
     // which should be inenumerable but configurable
     if (compiler.repeat) {
-        vm.$index = compiler.repeatIndex
-        def(vm, '$collection', compiler.repeatCollection)
+        //data.$index = compiler.repeatIndex
+        def(data, '$index', compiler.repeatIndex, false, true)
         compiler.createBinding('$index')
     }
+
+    // allow the $data object to be swapped
+    Object.defineProperty(vm, '$data', {
+        enumerable: false,
+        get: function () {
+            return compiler.data
+        },
+        set: function (newData) {
+            var oldData = compiler.data
+            Observer.unobserve(oldData, '', compiler.observer)
+            compiler.data = newData
+            Observer.copyPaths(newData, oldData)
+            Observer.observe(newData, '', compiler.observer)
+        }
+    })
 
     // now parse the DOM, during which we will create necessary bindings
     // and bind the parsed directives
     compiler.compile(el, true)
 
-    // observe root values so that they emit events when
-    // their nested values change (for an Object)
-    // or when they mutate (for an Array)
-    var i = observables.length, binding
-    while (i--) {
-        binding = observables[i]
-        Observer.observe(binding.value, binding.key, compiler.observer)
-    }
     // extract dependencies for computed properties
-    if (computed.length) DepsParser.parse(computed)
+    if (compiler.computed.length) {
+        DepsParser.parse(compiler.computed)
+    }
 
     // done!
     compiler.init = false
+
+    // post compile / ready hook
+    compiler.execHook('afterCompile', 'ready')
 }
 
 var CompilerProto = Compiler.prototype
@@ -199,7 +204,7 @@ CompilerProto.setupObserver = function () {
         })
 
     function check (key) {
-        if (!bindings[key]) {
+        if (!hasOwn.call(bindings, key)) {
             compiler.createBinding(key)
         }
     }
@@ -210,18 +215,20 @@ CompilerProto.setupObserver = function () {
  */
 CompilerProto.compile = function (node, root) {
 
-    var compiler = this
+    var compiler = this,
+        nodeType = node.nodeType,
+        tagName  = node.tagName
 
-    if (node.nodeType === 1) { // a normal node
+    if (nodeType === 1 && tagName !== 'SCRIPT') { // a normal node
 
         // skip anything with v-pre
         if (utils.attr(node, 'pre') !== null) return
 
         // special attributes to check
         var repeatExp,
-            componentId,
+            componentExp,
             partialId,
-            customElementFn = compiler.getOption('elements', node.tagName.toLowerCase())
+            directive
 
         // It is important that we access these attributes
         // procedurally because the order matters.
@@ -235,21 +242,25 @@ CompilerProto.compile = function (node, root) {
         if (repeatExp = utils.attr(node, 'repeat')) {
 
             // repeat block cannot have v-id at the same time.
-            var directive = Directive.parse(config.attrs.repeat, repeatExp, compiler, node)
+            directive = Directive.parse(config.attrs.repeat, repeatExp, compiler, node)
             if (directive) {
                 compiler.bindDirective(directive)
             }
 
-        // custom elements has 2nd highest priority
-        } else if (!root && customElementFn) {
+        // v-component has 2nd highest priority
+        } else if (!root && (componentExp = utils.attr(node, 'component'))) {
 
-            addChild(customElementFn)
-
-        // v-component has 3rd highest priority
-        } else if (!root && (componentId = utils.attr(node, 'component'))) {
-
-            var ChildVM = compiler.getOption('components', componentId)
-            if (ChildVM) addChild(ChildVM)
+            directive = Directive.parse(config.attrs.component, componentExp, compiler, node)
+            if (directive) {
+                // component directive is a bit different from the others.
+                // when it has no argument, it should be treated as a
+                // simple directive with its key as the argument.
+                if (componentExp.indexOf(':') === -1) {
+                    directive.isSimple = true
+                    directive.arg = directive.key
+                }
+                compiler.bindDirective(directive)
+            }
 
         } else {
 
@@ -270,27 +281,12 @@ CompilerProto.compile = function (node, root) {
             compiler.compileNode(node)
         }
 
-    } else if (node.nodeType === 3) { // text node
+    } else if (nodeType === 3) { // text node
 
         compiler.compileTextNode(node)
 
     }
 
-    function addChild (Ctor) {
-        if (utils.isConstructor(Ctor)) {
-            var child = new Ctor({
-                el: node,
-                child: true,
-                compilerOptions: {
-                    parentCompiler: compiler
-                }
-            })
-            compiler.childCompilers.push(child.$compiler)
-        } else {
-            // simply call the function
-            Ctor(node)
-        }
-    }
 }
 
 /**
@@ -382,36 +378,37 @@ CompilerProto.bindDirective = function (directive) {
     var binding,
         compiler      = this,
         key           = directive.key,
-        baseKey       = key.split('.')[0],
-        ownerCompiler = traceOwnerCompiler(directive, compiler)
+        baseKey       = key.split('.')[0]
 
     if (directive.isExp) {
         // expression bindings are always created on current compiler
         binding = compiler.createBinding(key, true, directive.isFn)
-    } else if (ownerCompiler.vm.hasOwnProperty(baseKey)) {
-        // If the directive's owner compiler's VM has the key,
-        // it belongs there. Create the binding if it's not already
-        // created, and return it.
-        binding = hasOwn.call(ownerCompiler.bindings, key)
-            ? ownerCompiler.bindings[key]
-            : ownerCompiler.createBinding(key)
+    } else if (
+        hasOwn.call(compiler.data, baseKey) ||
+        hasOwn.call(compiler.vm, baseKey)
+    ) {
+        // If the directive's compiler's VM has the base key,
+        // it belongs here. Create the binding if it's not created already.
+        binding = hasOwn.call(compiler.bindings, key)
+            ? compiler.bindings[key]
+            : compiler.createBinding(key)
     } else {
         // due to prototypal inheritance of bindings, if a key doesn't exist
-        // on the owner compiler's VM, then it doesn't exist in the whole
+        // on the bindings object, then it doesn't exist in the whole
         // prototype chain. In this case we create the new binding at the root level.
-        binding = ownerCompiler.bindings[key] || compiler.rootCompiler.createBinding(key)
+        binding = compiler.bindings[key] || compiler.rootCompiler.createBinding(key)
     }
 
     binding.instances.push(directive)
     directive.binding = binding
 
-    var value = binding.value
     // invoke bind hook if exists
     if (directive.bind) {
-        directive.bind(value)
+        directive.bind()
     }
 
     // set initial value
+    var value = binding.value
     if (value !== undefined) {
         if (binding.isComputed) {
             directive.refresh(value)
@@ -447,11 +444,12 @@ CompilerProto.createBinding = function (key, isExp, isFn) {
         bindings[key] = binding
         // make sure the key exists in the object so it can be observed
         // by the Observer!
-        Observer.ensurePath(compiler.vm, key)
         if (binding.root) {
             // this is a root level binding. we need to define getter/setters for it.
             compiler.define(key, binding)
         } else {
+            // ensure path in data so it can be observed
+            Observer.ensurePath(compiler.data, key)
             var parentKey = key.slice(0, key.lastIndexOf('.'))
             if (!hasOwn.call(bindings, parentKey)) {
                 // this is a nested value binding, but the binding for its parent
@@ -472,53 +470,41 @@ CompilerProto.define = function (key, binding) {
     log('    defined root binding: ' + key)
 
     var compiler = this,
+        data = compiler.data,
         vm = compiler.vm,
-        ob = compiler.observer,
-        value = binding.value = vm[key], // save the value before redefinening it
-        type = utils.typeOf(value)
+        value = binding.value = data[key] // save the value before redefinening it
 
-    if (type === 'Object' && value.$get) {
-        // computed property
+    if (utils.typeOf(value) === 'Object' && value.$get) {
         compiler.markComputed(binding)
-    } else if (type === 'Object' || type === 'Array') {
-        // observe objects later, becase there might be more keys
-        // to be added to it. we also want to emit all the set events
-        // after all values are available.
-        compiler.observables.push(binding)
+    }
+
+    if (!(key in data)) {
+        data[key] = undefined
+    }
+
+    // if the data object is already observed, that means
+    // this binding is created late. we need to observe it now.
+    if (data.__observer__) {
+        Observer.convert(data, key)
     }
 
     Object.defineProperty(vm, key, {
-        enumerable: true,
-        get: function () {
-            var value = binding.value
-            if (depsOb.active && (!binding.isComputed && (!value || !value.__observer__)) ||
-                Array.isArray(value)) {
-                // only emit non-computed, non-observed (primitive) values, or Arrays.
-                // because these are the cleanest dependencies
-                ob.emit('get', key)
+        get: binding.isComputed
+            ? function () {
+                return compiler.data[key].$get()
             }
-            return binding.isComputed
-                ? value.$get()
-                : value
-        },
-        set: function (newVal) {
-            var value = binding.value
-            if (binding.isComputed) {
-                if (value.$set) {
-                    value.$set(newVal)
+            : function () {
+                return compiler.data[key]
+            },
+        set: binding.isComputed
+            ? function (val) {
+                if (compiler.data[key].$set) {
+                    compiler.data[key].$set(val)
                 }
-            } else if (newVal !== value) {
-                // unwatch the old value
-                Observer.unobserve(value, key, ob)
-                // set new value
-                binding.value = newVal
-                ob.emit('set', key, newVal)
-                Observer.ensurePaths(key, newVal, compiler.bindings)
-                // now watch the new value, which in turn emits 'set'
-                // for all its nested values
-                Observer.observe(newVal, key, ob)
             }
-        }
+            : function (val) {
+                compiler.data[key] = val
+            }
     })
 }
 
@@ -546,8 +532,24 @@ CompilerProto.markComputed = function (binding) {
  *  Retrive an option from the compiler
  */
 CompilerProto.getOption = function (type, id) {
-    var opts = this.options
-    return (opts[type] && opts[type][id]) || (utils[type] && utils[type][id])
+    var opts = this.options,
+        parent = this.parentCompiler
+    return (opts[type] && opts[type][id]) || (
+        parent
+            ? parent.getOption(type, id)
+            : utils[type] && utils[type][id]
+    )
+}
+
+/**
+ *  Execute a user hook
+ */
+CompilerProto.execHook = function (id, alt) {
+    var opts = this.options,
+        hook = opts[id] || opts[alt]
+    if (hook) {
+        hook.call(this.vm, opts)
+    }
 }
 
 /**
@@ -557,14 +559,13 @@ CompilerProto.destroy = function () {
 
     var compiler = this,
         i, key, dir, instances, binding,
-        el         = compiler.el,
-        directives = compiler.dirs,
-        exps       = compiler.exps,
-        bindings   = compiler.bindings,
-        teardown   = compiler.options.teardown
+        vm          = compiler.vm,
+        el          = compiler.el,
+        directives  = compiler.dirs,
+        exps        = compiler.exps,
+        bindings    = compiler.bindings
 
-    // call user teardown first
-    if (teardown) teardown()
+    compiler.execHook('beforeDestroy')
 
     // unwatch
     compiler.observer.off()
@@ -614,37 +615,23 @@ CompilerProto.destroy = function () {
     // finally remove dom element
     if (el === document.body) {
         el.innerHTML = ''
-    } else if (el.parentNode) {
-        transition(el, -1, function () {
-            el.parentNode.removeChild(el)
-        }, this)
+    } else {
+        vm.$remove()
     }
+
+    compiler.execHook('afterDestroy')
 }
 
 // Helpers --------------------------------------------------------------------
 
 /**
- *  determine which viewmodel a key belongs to based on nesting symbols
- */
-function traceOwnerCompiler (key, compiler) {
-    if (key.nesting) {
-        var levels = key.nesting
-        while (compiler.parentCompiler && levels--) {
-            compiler = compiler.parentCompiler
-        }
-    } else if (key.root) {
-        while (compiler.parentCompiler) {
-            compiler = compiler.parentCompiler
-        }
-    }
-    return compiler
-}
-
-/**
  *  shorthand for getting root compiler
  */
 function getRoot (compiler) {
-    return traceOwnerCompiler({ root: true }, compiler)
+    while (compiler.parentCompiler) {
+        compiler = compiler.parentCompiler
+    }
+    return compiler
 }
 
 module.exports = Compiler

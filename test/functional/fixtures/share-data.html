@@ -15,31 +15,32 @@
             <pre>{{source}}</pre>
         </div>
         <script>
+            Vue.config({debug:true})
             var shared = {
                 msg: 'hello'
             }
             new Vue({
                 el: '#a',
-                scope: {
+                data: {
                     shared: shared
                 }
             })
             new Vue({
                 el: '#b',
-                scope: {
+                data: {
                     shared: shared
                 }
             })
             new Vue({
                 lazy: true,
                 el: '#c',
-                scope: {
+                data: {
                     shared: shared
                 }
             })
             new Vue({
                 el: '#d',
-                scope: {
+                data: {
                     shared: shared,
                     source: {
                         $get: function () {

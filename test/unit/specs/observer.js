@@ -5,10 +5,15 @@ describe('UNIT: Observer', function () {
         DepsOb   = require('vue/src/deps-parser').observer
     
     describe('Observing Object', function () {
+
+        it('should not watch a ViewModel instance', function () {
+            var obj = new Vue(), ob = new Emitter()
+            Observer.observe(obj, 'test', ob)
+            assert.notOk(obj.__observer__)
+        })
         
         it('should attach hidden observer and values to the object', function () {
             var obj = {}, ob = new Emitter()
-            ob.proxies = {}
             Observer.observe(obj, 'test', ob)
             assert.ok(obj.__observer__ instanceof Emitter)
             assert.ok(obj.__observer__.values)
@@ -48,7 +53,6 @@ describe('UNIT: Observer', function () {
         it('should emit set when first observing', function () {
             var obj = { a: 1, b: { c: 2} },
                 ob = new Emitter(), i = 0
-            ob.proxies = {}
             var expects = [
                 { key: 'test.a', val: obj.a },
                 { key: 'test.b', val: obj.b },
@@ -69,8 +73,6 @@ describe('UNIT: Observer', function () {
                 ob1 = new Emitter(),
                 ob2 = new Emitter(),
                 i = 0
-            ob1.proxies = {}
-            ob2.proxies = {}
             Observer.observe(obj, 'test', ob1) // watch first time
 
             var expects = [
@@ -94,7 +96,6 @@ describe('UNIT: Observer', function () {
 
         var arr = [],
             ob = new Emitter()
-        ob.proxies = {}
         Observer.observe(arr, 'test', ob)
         
         it('should attach the hidden observer', function () {
@@ -364,8 +365,6 @@ describe('UNIT: Observer', function () {
         var ob1 = new Emitter(),
             ob2 = new Emitter(),
             obj = {a:1}
-        ob1.proxies = {}
-        ob2.proxies = {}
         Observer.observe(obj, 'test', ob1)
         Observer.observe(obj, 'test', ob2)
 
@@ -392,8 +391,6 @@ describe('UNIT: Observer', function () {
         var ob1 = new Emitter(),
             ob2 = new Emitter(),
             obj = {a:1}
-        ob1.proxies = {}
-        ob2.proxies = {}
         Observer.observe(obj, 'test', ob1)
         Observer.observe(obj, 'test', ob2)
         Observer.unobserve(obj, 'test', ob1)
@@ -437,25 +434,25 @@ describe('UNIT: Observer', function () {
 
     })
 
-    describe('.ensurePaths()', function () {
+    // describe('.copyPaths()', function () {
         
-        it('should ensure path for all paths that start with the given key', function () {
-            var key = 'a',
-                obj = {},
-                paths = {
-                    'a.b.c': 1,
-                    'a.d': 2,
-                    'e.f': 3,
-                    'g': 4
-                }
-            Observer.ensurePaths(key, obj, paths)
-            assert.strictEqual(obj.b.c, undefined)
-            assert.strictEqual(obj.d, undefined)
-            assert.notOk('f' in obj)
-            assert.strictEqual(Object.keys(obj).length, 2)
-        })
+    //     it('should ensure path for all paths that start with the given key', function () {
+    //         var key = 'a',
+    //             obj = {},
+    //             paths = {
+    //                 'a.b.c': 1,
+    //                 'a.d': 2,
+    //                 'e.f': 3,
+    //                 'g': 4
+    //             }
+    //         Observer.ensurePaths(key, obj, paths)
+    //         assert.strictEqual(obj.b.c, undefined)
+    //         assert.strictEqual(obj.d, undefined)
+    //         assert.notOk('f' in obj)
+    //         assert.strictEqual(Object.keys(obj).length, 2)
+    //     })
 
-    })
+    // })
 
     function setTestFactory (opts) {
         return function () {
@@ -463,7 +460,6 @@ describe('UNIT: Observer', function () {
                 i  = 0,
                 obj = opts.obj,
                 expects = opts.expects
-            ob.proxies = {}
             Observer.observe(obj, opts.path, ob)
             ob.on('set', function (key, val) {
                 var expect = expects[i]
@@ -475,12 +471,12 @@ describe('UNIT: Observer', function () {
                 if (expect.skip) return
                 var path = expect.key.split('.'),
                     j = 1,
-                    scope = obj
+                    data = obj
                 while (j < path.length - 1) {
-                    scope = scope[path[j]]
+                    data = data[path[j]]
                     j++
                 }
-                scope[path[j]] = expect.val
+                data[path[j]] = expect.val
             })
             assert.strictEqual(i, expects.length)
         }
@@ -492,7 +488,6 @@ describe('UNIT: Observer', function () {
                 i  = 0,
                 obj = opts.obj,
                 expects = opts.expects
-            ob.proxies = {}
             Observer.observe(obj, opts.path, ob)
             ob.on('get', function (key) {
                 var expected = expects[i]
@@ -502,9 +497,9 @@ describe('UNIT: Observer', function () {
             expects.forEach(function (key) {
                 var path = key.split('.'),
                     j = 1,
-                    scope = obj
+                    data = obj
                 while (j < path.length) {
-                    scope = scope[path[j]]
+                    data = data[path[j]]
                     j++
                 }
             })

@@ -1,5 +1,8 @@
-var Compiler = require('./compiler'),
-    def      = require('./utils').defProtected
+var Compiler   = require('./compiler'),
+    utils      = require('./utils'),
+    transition = require('./transition'),
+    def        = utils.defProtected,
+    nextTick   = utils.nextTick
 
 /**
  *  ViewModel exposed to the user that holds data,
@@ -80,7 +83,6 @@ def(VMProto, '$emit', function () {
         parent = compiler.parentCompiler
     emitter.emit.apply(emitter, arguments)
     if (parent) {
-        parent.emitter.emit.apply(parent.emitter, arguments)
         parent.vm.$emit.apply(parent.vm, arguments)
     }
 })
@@ -94,6 +96,60 @@ def(VMProto, '$emit', function () {
         emitter[method].apply(emitter, arguments)
     })
 })
+
+// DOM convenience methods
+
+def(VMProto, '$appendTo', function (target, cb) {
+    target = query(target)
+    var el = this.$el
+    transition(el, 1, function () {
+        target.appendChild(el)
+        if (cb) nextTick(cb)
+    }, this.$compiler)
+})
+
+def(VMProto, '$remove', function (cb) {
+    var el = this.$el,
+        parent = el.parentNode
+    if (!parent) return
+    transition(el, -1, function () {
+        parent.removeChild(el)
+        if (cb) nextTick(cb)
+    }, this.$compiler)
+})
+
+def(VMProto, '$before', function (target, cb) {
+    target = query(target)
+    var el = this.$el,
+        parent = target.parentNode
+    if (!parent) return
+    transition(el, 1, function () {
+        parent.insertBefore(el, target)
+        if (cb) nextTick(cb)
+    }, this.$compiler)
+})
+
+def(VMProto, '$after', function (target, cb) {
+    target = query(target)
+    var el = this.$el,
+        parent = target.parentNode,
+        next = target.nextSibling
+    if (!parent) return
+    transition(el, 1, function () {
+        if (next) {
+            parent.insertBefore(el, next)
+        } else {
+            parent.appendChild(el)
+        }
+        if (cb) nextTick(cb)
+    }, this.$compiler)
+})
+
+function query (el) {
+    return typeof el === 'string'
+        ? document.querySelector(el)
+        : el
+}
 
 /**
  *  If a VM doesn't contain a path, go up the prototype chain

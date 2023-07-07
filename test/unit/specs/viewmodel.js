@@ -9,7 +9,7 @@ describe('UNIT: ViewModel', function () {
         arr = [1, 2, 3],
         vm = new Vue({
             el: '#vm-test',
-            scope: {
+            data: {
                 a: data,
                 b: arr
             }
@@ -151,7 +151,7 @@ describe('UNIT: ViewModel', function () {
             var triggered = 0,
                 msg = 'broadcast test'
             var Child = Vue.extend({
-                init: function () {
+                ready: function () {
                     this.$on('hello', function (m) {
                         assert.strictEqual(m, msg)
                         triggered++
@@ -178,7 +178,7 @@ describe('UNIT: ViewModel', function () {
                 midTriggered = false,
                 msg = 'emit test'
             var Bottom = Vue.extend({
-                init: function () {
+                ready: function () {
                     var self = this
                     setTimeout(function () {
                         self.$emit('hello', msg)
@@ -191,7 +191,7 @@ describe('UNIT: ViewModel', function () {
             var Middle = Vue.extend({
                 template: '<div v-component="bottom"></div>',
                 components: { bottom: Bottom },
-                init: function () {
+                ready: function () {
                     this.$on('hello', function (m) {
                         assert.strictEqual(m, msg)
                         midTriggered = true
@@ -201,7 +201,7 @@ describe('UNIT: ViewModel', function () {
             var Top = Vue.extend({
                 template: '<div v-component="middle"></div>',
                 components: { middle: Middle },
-                init: function () {
+                ready: function () {
                     this.$on('hello', function (m) {
                         assert.strictEqual(m, msg)
                         topTriggered = true
@@ -213,13 +213,123 @@ describe('UNIT: ViewModel', function () {
 
     })
 
+    describe('DOM methods', function () {
+
+        var enterCalled,
+            leaveCalled,
+            callbackCalled,
+            nextTick = require('vue/src/utils').nextTick
+        
+        var v = new Vue({
+            attributes: {
+                'v-transition': 'test'
+            },
+            transitions: {
+                test: {
+                    enter: function (el, change) {
+                        enterCalled = true
+                        change()
+                    },
+                    leave: function (el, change) {
+                        leaveCalled = true
+                        change()
+                    }
+                }
+            }
+        })
+
+        function reset () {
+            enterCalled = false
+            leaveCalled = false
+            callbackCalled = false
+        }
+
+        function cb () {
+            callbackCalled = true
+        }
+
+        it('$appendTo', function (done) {
+            reset()
+            var parent = document.createElement('div')
+            v.$appendTo(parent, cb)
+            assert.strictEqual(v.$el.parentNode, parent)
+            assert.ok(enterCalled)
+            nextTick(function () {
+                assert.ok(callbackCalled)
+                done()
+            })
+        })
+
+        it('$before', function (done) {
+            reset()
+            var parent = document.createElement('div'),
+                ref = document.createElement('div')
+            parent.appendChild(ref)
+            v.$before(ref, cb)
+            assert.strictEqual(v.$el.parentNode, parent)
+            assert.strictEqual(v.$el.nextSibling, ref)
+            assert.ok(enterCalled)
+            nextTick(function () {
+                assert.ok(callbackCalled)
+                done()
+            })
+        })
+
+        it('$after', function (done) {
+            reset()
+            var parent = document.createElement('div'),
+                ref1 = document.createElement('div'),
+                ref2 = document.createElement('div')
+            parent.appendChild(ref1)
+            parent.appendChild(ref2)
+            v.$after(ref1, cb)
+            assert.strictEqual(v.$el.parentNode, parent)
+            assert.strictEqual(v.$el.nextSibling, ref2)
+            assert.strictEqual(ref1.nextSibling, v.$el)
+            assert.ok(enterCalled)
+            nextTick(function () {
+                assert.ok(callbackCalled)
+                next()
+            })
+
+            function next () {
+                reset()
+                v.$after(ref2, cb)
+                assert.strictEqual(v.$el.parentNode, parent)
+                assert.notOk(v.$el.nextSibling)
+                assert.strictEqual(ref2.nextSibling, v.$el)
+                assert.ok(enterCalled)
+                nextTick(function () {
+                    assert.ok(callbackCalled)
+                    done()
+                })
+            }
+        })
+
+        it('$remove', function (done) {
+            reset()
+            var parent = document.createElement('div')
+            v.$appendTo(parent)
+            v.$remove(cb)
+            assert.notOk(v.$el.parentNode)
+            assert.ok(enterCalled)
+            assert.ok(leaveCalled)
+            nextTick(function () {
+                assert.ok(callbackCalled)
+                done()
+            })
+        })
+
+    })
+
     describe('.$destroy', function () {
         
         // since this simply delegates to Compiler.prototype.destroy(),
         // that's what we are actually testing here.
         var destroy = require('vue/src/compiler').prototype.destroy
 
-        var tearDownCalled = false,
+        var beforeDestroyCalled = false,
+            afterDestroyCalled = false,
             observerOffCalled = false,
             emitterOffCalled = false,
             dirUnbindCalled = false,
@@ -265,8 +375,11 @@ describe('UNIT: ViewModel', function () {
 
         var compilerMock = {
             options: {
-                teardown: function () {
-                    tearDownCalled = true
+                beforeDestroy: function () {
+                    beforeDestroyCalled = true
+                },
+                afterDestroy: function () {
+                    afterDestroyCalled = true
                 }
             },
             observer: {
@@ -298,13 +411,13 @@ describe('UNIT: ViewModel', function () {
                     }
                 }
             },
-            el: {
-                getAttribute: function () {},
-                parentNode: {
-                    removeChild: function () {
-                        elRemoved = true
-                    }
+            vm: {
+                $remove: function () {
+                    elRemoved = true
                 }
+            },
+            execHook: function (id) {
+                this.options[id].call(this)
             }
         }
 
@@ -312,8 +425,9 @@ describe('UNIT: ViewModel', function () {
 
         destroy.call(compilerMock)
 
-        it('should call the teardown option', function () {
-            assert.ok(tearDownCalled)
+        it('should call the pre and post destroy hooks', function () {
+            assert.ok(beforeDestroyCalled)
+            assert.ok(afterDestroyCalled)
         })
 
         it('should turn observer and emitter off', function () {

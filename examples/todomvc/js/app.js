@@ -15,17 +15,32 @@ var app = new Vue({
 
     el: '#todoapp',
 
-    init: function () {
+    created: function () {
         this.updateFilter()
         this.remaining = this.todos.filter(function (todo) {
             return !todo.completed
         }).length
     },
 
-    scope: {
+    data: {
 
         todos: todoStorage.fetch(),
 
+        allDone: {
+            $get: function () {
+                return this.remaining === 0
+            },
+            $set: function (value) {
+                this.todos.forEach(function (todo) {
+                    todo.completed = value
+                })
+                this.remaining = value ? 0 : this.todos.length
+                todoStorage.save()
+            }
+        }
+    },
+
+    methods: {
         updateFilter: function () {
             var filter = location.hash.slice(2)
             this.filter = (filter in filters) ? filter : 'all'
@@ -43,32 +58,32 @@ var app = new Vue({
         },
 
         removeTodo: function (e) {
-            this.todos.remove(e.item)
-            this.remaining -= e.item.completed ? 0 : 1
+            this.todos.remove(e.targetVM.$data)
+            this.remaining -= e.targetVM.completed ? 0 : 1
             todoStorage.save()
         },
 
         toggleTodo: function (e) {
-            this.remaining += e.item.completed ? -1 : 1
+            this.remaining += e.targetVM.completed ? -1 : 1
             todoStorage.save()
         },
 
         editTodo: function (e) {
-            this.beforeEditCache = e.item.title
-            this.editedTodo = e.item
+            this.beforeEditCache = e.targetVM.title
+            this.editedTodo = e.targetVM
         },
 
         doneEdit: function (e) {
             if (!this.editedTodo) return
             this.editedTodo = null
-            e.item.title = e.item.title.trim()
-            if (!e.item.title) this.removeTodo(e)
+            e.targetVM.title = e.targetVM.title.trim()
+            if (!e.targetVM.title) this.removeTodo(e)
             todoStorage.save()
         },
 
         cancelEdit: function (e) {
             this.editedTodo = null
-            e.item.title = this.beforeEditCache
+            e.targetVM.title = this.beforeEditCache
         },
 
         removeCompleted: function () {
@@ -76,19 +91,6 @@ var app = new Vue({
                 return todo.completed
             })
             todoStorage.save()
-        },
-
-        allDone: {
-            $get: function () {
-                return this.remaining === 0
-            },
-            $set: function (value) {
-                this.todos.forEach(function (todo) {
-                    todo.completed = value
-                })
-                this.remaining = value ? 0 : this.todos.length
-                todoStorage.save()
-            }
         }
     }
 })

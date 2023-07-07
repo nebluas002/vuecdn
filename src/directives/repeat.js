@@ -51,8 +51,7 @@ var mutationHandlers = {
     },
 
     sort: function () {
-        var key = this.arg,
-            vms = this.vms,
+        var vms = this.vms,
             col = this.collection,
             l = col.length,
             sorted = new Array(l),
@@ -61,7 +60,7 @@ var mutationHandlers = {
             data = col[i]
             for (j = 0; j < l; j++) {
                 vm = vms[j]
-                if (vm[key] === data) {
+                if (vm.$data === data) {
                     sorted[i] = vm
                     break
                 }
@@ -107,13 +106,11 @@ module.exports = {
         self.collection = null
         self.vms = null
         self.mutationListener = function (path, arr, mutation) {
-            self.detach()
             var method = mutation.method
             mutationHandlers[method].call(self, mutation)
             if (method !== 'push' && method !== 'pop') {
                 self.updateIndexes()
             }
-            self.retach()
         }
 
     },
@@ -140,11 +137,9 @@ module.exports = {
 
         // create child-vms and append to DOM
         if (collection.length) {
-            this.detach()
             for (var i = 0, l = collection.length; i < l; i++) {
                 this.buildItem(collection[i], i)
             }
-            this.retach()
         }
     },
 
@@ -157,7 +152,6 @@ module.exports = {
 
         var node    = this.el.cloneNode(true),
             ctn     = this.container,
-            scope   = {},
             ref, item
 
         // append node into DOM first
@@ -175,16 +169,13 @@ module.exports = {
             }, this.compiler)
         }
 
-        // set data on scope and compile
-        scope[this.arg] = data || {}
         item = new this.ChildVM({
             el: node,
-            scope: scope,
+            data: data,
             compilerOptions: {
                 repeat: true,
                 repeatIndex: index,
                 repeatCollection: this.collection,
-                repeatPrefix: this.arg,
                 parentCompiler: this.compiler,
                 delegator: ctn
             }
@@ -205,32 +196,7 @@ module.exports = {
     updateIndexes: function () {
         var i = this.vms.length
         while (i--) {
-            this.vms[i].$index = i
-        }
-    },
-
-    /**
-     *  Detach/retach the container from the DOM before mutation
-     *  so that batch DOM updates are done in-memory and faster
-     */
-    detach: function () {
-        if (this.hasTrans) return
-        var c = this.container,
-            p = this.parent = c.parentNode
-        this.next = c.nextSibling
-        if (p) p.removeChild(c)
-    },
-
-    retach: function () {
-        if (this.hasTrans) return
-        var n = this.next,
-            p = this.parent,
-            c = this.container
-        if (!p) return
-        if (n) {
-            p.insertBefore(c, n)
-        } else {
-            p.appendChild(c)
+            this.vms[i].$data.$index = i
         }
     },
 

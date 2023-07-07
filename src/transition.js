@@ -21,7 +21,12 @@ var endEvent   = sniffTransitionEndEvent(),
  *    1 = enter
  *    2 = leave
  */
-var transition = module.exports = function (el, stage, changeState, compiler) {
+var transition = module.exports = function (el, stage, cb, compiler) {
+
+    var changeState = function () {
+        cb()
+        compiler.execHook(stage > 0 ? 'enteredView' : 'leftView')
+    }
 
     if (compiler.init) {
         changeState()
@@ -144,8 +149,8 @@ function sniffTransitionEndEvent () {
         defaultEvent = 'transitionend',
         events = {
             'transition'       : defaultEvent,
-            'MozTransition'    : defaultEvent,
-            'WebkitTransition' : 'webkitTransitionEnd'
+            'mozTransition'    : defaultEvent,
+            'webkitTransition' : 'webkitTransitionEnd'
         }
     for (var name in events) {
         if (el.style[name] !== undefined) {
