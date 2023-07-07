@@ -37,7 +37,15 @@ def(VMProto, '$set', function (key, value) {
  *  fire callback with new value
  */
 def(VMProto, '$watch', function (key, callback) {
-    this.$compiler.observer.on('change:' + key, callback)
+    var self = this
+    function on () {
+        var args = arguments
+        utils.nextTick(function () {
+            callback.apply(self, args)
+        })
+    }
+    callback._fn = on
+    self.$compiler.observer.on('change:' + key, on)
 })
 
 /**
@@ -49,7 +57,7 @@ def(VMProto, '$unwatch', function (key, callback) {
     // by checking the length of arguments
     var args = ['change:' + key],
         ob = this.$compiler.observer
-    if (callback) args.push(callback)
+    if (callback) args.push(callback._fn)
     ob.off.apply(ob, args)
 })
 
@@ -77,20 +85,20 @@ def(VMProto, '$broadcast', function () {
 /**
  *  emit an event that propagates all the way up to parent VMs.
  */
-def(VMProto, '$emit', function () {
+def(VMProto, '$dispatch', function () {
     var compiler = this.$compiler,
         emitter = compiler.emitter,
         parent = compiler.parentCompiler
     emitter.emit.apply(emitter, arguments)
     if (parent) {
-        parent.vm.$emit.apply(parent.vm, arguments)
+        parent.vm.$dispatch.apply(parent.vm, arguments)
     }
 })
 
 /**
  *  delegate on/off/once to the compiler's emitter
  */
-;['on', 'off', 'once'].forEach(function (method) {
+;['emit', 'on', 'off', 'once'].forEach(function (method) {
     def(VMProto, '$' + method, function () {
         var emitter = this.$compiler.emitter
         emitter[method].apply(emitter, arguments)

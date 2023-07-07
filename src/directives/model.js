@@ -20,16 +20,29 @@ module.exports = {
                 ? 'change'
                 : 'input'
 
-        // determin the attribute to change when updating
+        // determine the attribute to change when updating
         var attr = self.attr = type === 'checkbox'
             ? 'checked'
             : (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA')
                 ? 'value'
                 : 'innerHTML'
 
+        if (self.filters) {
+            var compositionLock = false
+            this.cLock = function () {
+                compositionLock = true
+            }
+            this.cUnlock = function () {
+                compositionLock = false
+            }
+            el.addEventListener('compositionstart', this.cLock)
+            el.addEventListener('compositionend', this.cUnlock)
+        }
+
         // attach listener
         self.set = self.filters
             ? function () {
+                if (compositionLock) return
                 // if this directive has filters
                 // we need to let the vm.$set trigger
                 // update() so filters are applied.
@@ -53,7 +66,9 @@ module.exports = {
                 // no filters, don't let it trigger update()
                 self.lock = true
                 self.vm.$set(self.key, el[attr])
-                self.lock = false
+                utils.nextTick(function () {
+                    self.lock = false
+                })
             }
         el.addEventListener(self.event, self.set)
 
@@ -103,10 +118,15 @@ module.exports = {
     },
 
     unbind: function () {
-        this.el.removeEventListener(this.event, this.set)
+        var el = this.el
+        el.removeEventListener(this.event, this.set)
+        if (this.filters) {
+            el.removeEventListener('compositionstart', this.cLock)
+            el.removeEventListener('compositionend', this.cUnlock)
+        }
         if (isIE9) {
-            this.el.removeEventListener('cut', this.onCut)
-            this.el.removeEventListener('keyup', this.onDel)
+            el.removeEventListener('cut', this.onCut)
+            el.removeEventListener('keyup', this.onDel)
         }
     }
 }

@@ -6,10 +6,11 @@ module.exports = function (grunt) {
 
     grunt.registerTask('version', function (version) {
         ;['package', 'bower', 'component'].forEach(function (file) {
-            file = './' + file + '.json'
+            file = file + '.json'
             var json = grunt.file.read(file)
             json = json.replace(/"version"\s*:\s*"(.+?)"/, '"version": "' + version + '"')
             grunt.file.write(file, json)
+            console.log('updated ' + blue(file))
         })
     })
 
@@ -42,21 +43,20 @@ module.exports = function (grunt) {
             output: process.stdout
         }).question('Releasing version v' + next + '. Continue? (Y/n)', function (answer) {
             if (!answer || answer.toLowerCase() === 'y') {
-                console.log(
-                    '\n\x1b[1m\x1b[34m' +
-                    'Releasing: v' + next +
-                    '\x1b[39m\x1b[22m'
-                )
-                grunt.config.set('version', next)
+                console.log(blue('Releasing: v' + next))
                 grunt.task.run([
                     'jshint',
+                    'build:' + next,
                     'test',
                     'version:' + next,
-                    'dist',
                     'git:' + next
                 ])
             }
             done()
         })
     })
+}
+
+function blue (str) {
+    return '\x1b[1m\x1b[34m' + str + '\x1b[39m\x1b[22m'
 }
