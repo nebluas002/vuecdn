@@ -1,5 +1,7 @@
 describe('UNIT: ViewModel', function () {
 
+    var nextTick = require('vue/src/utils').nextTick
+
     mock('vm-test', '{{a.b.c}}')
     var data = {
             b: {
@@ -180,12 +182,12 @@ describe('UNIT: ViewModel', function () {
             var Bottom = Vue.extend({
                 ready: function () {
                     var self = this
-                    setTimeout(function () {
+                    nextTick(function () {
                         self.$emit('hello', msg)
                         assert.ok(topTriggered)
                         assert.ok(midTriggered)
                         done()
-                    }, 0)
+                    })
                 }
             })
             var Middle = Vue.extend({
@@ -217,8 +219,7 @@ describe('UNIT: ViewModel', function () {
 
         var enterCalled,
             leaveCalled,
-            callbackCalled,
-            nextTick = require('vue/src/utils').nextTick
+            callbackCalled
         
         var v = new Vue({
             attributes: {

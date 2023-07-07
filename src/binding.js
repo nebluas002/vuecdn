@@ -1,3 +1,6 @@
+var batcher = require('./batcher'),
+    id = 0
+
 /**
  *  Binding class.
  *
@@ -6,6 +9,7 @@
  *  and multiple computed property dependents
  */
 function Binding (compiler, key, isExp, isFn) {
+    this.id = id++
     this.value = undefined
     this.isExp = !!isExp
     this.isFn = isFn
@@ -15,6 +19,7 @@ function Binding (compiler, key, isExp, isFn) {
     this.instances = []
     this.subs = []
     this.deps = []
+    this.unbound = false
 }
 
 var BindingProto = Binding.prototype
@@ -24,9 +29,13 @@ var BindingProto = Binding.prototype
  */
 BindingProto.update = function (value) {
     this.value = value
+    batcher.queue(this, 'update')
+}
+
+BindingProto._update = function () {
     var i = this.instances.length
     while (i--) {
-        this.instances[i].update(value)
+        this.instances[i].update(this.value)
     }
     this.pub()
 }
@@ -36,6 +45,10 @@ BindingProto.update = function (value) {
  *  Force all instances to re-evaluate themselves
  */
 BindingProto.refresh = function () {
+    batcher.queue(this, 'refresh')
+}
+
+BindingProto._refresh = function () {
     var i = this.instances.length
     while (i--) {
         this.instances[i].refresh()
@@ -58,6 +71,11 @@ BindingProto.pub = function () {
  *  Unbind the binding, remove itself from all of its dependencies
  */
 BindingProto.unbind = function () {
+    // Indicate this has been unbound.
+    // It's possible this binding will be in
+    // the batcher's flush queue when its owner
+    // compiler has already been destroyed.
+    this.unbound = true
     var i = this.instances.length
     while (i--) {
         this.instances[i].unbind()

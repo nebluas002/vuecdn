@@ -5,10 +5,13 @@ var config    = require('./config'),
     console   = window.console,
     ViewModel // late def
 
-var defer =
-    window.webkitRequestAnimationFrame ||
-    window.requestAnimationFrame ||
-    window.setTimeout
+// PhantomJS doesn't support rAF, yet it has the global
+// variable exposed. Use setTimeout so tests can work.
+var defer = navigator.userAgent.indexOf('PhantomJS') > -1
+    ? window.setTimeout
+    : (window.webkitRequestAnimationFrame ||
+        window.requestAnimationFrame ||
+        window.setTimeout)
 
 /**
  *  Create a prototype-less object
@@ -188,7 +191,7 @@ var utils = module.exports = {
     },
 
     /**
-     * Defer DOM updates
+     *  used to defer batch updates
      */
     nextTick: function (cb) {
         defer(cb, 0)
