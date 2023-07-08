@@ -14,7 +14,14 @@ var Emitter     = require('./emitter'),
     makeHash    = utils.hash,
     extend      = utils.extend,
     def         = utils.defProtected,
-    hasOwn      = Object.prototype.hasOwnProperty
+    hasOwn      = Object.prototype.hasOwnProperty,
+
+    // hooks to register
+    hooks = [
+        'created', 'ready',
+        'beforeDestroy', 'afterDestroy',
+        'enteredView', 'leftView'
+    ]
 
 /**
  *  The DOM compiler
@@ -82,7 +89,7 @@ function Compiler (vm, options) {
     }
 
     // beforeCompile hook
-    compiler.execHook('beforeCompile', 'created')
+    compiler.execHook('created')
 
     // the user might have set some props on the vm 
     // so copy it back to the data...
@@ -119,9 +126,7 @@ function Compiler (vm, options) {
     compiler.compile(el, true)
 
     // bind deferred directives (child components)
-    for (var i = 0, l = compiler.deferred.length; i < l; i++) {
-        compiler.bindDirective(compiler.deferred[i])
-    }
+    compiler.deferred.forEach(compiler.bindDirective, compiler)
 
     // extract dependencies for computed properties
     compiler.parseDeps()
@@ -130,7 +135,7 @@ function Compiler (vm, options) {
     compiler.init = false
 
     // post compile / ready hook
-    compiler.execHook('afterCompile', 'ready')
+    compiler.execHook('ready')
 }
 
 var CompilerProto = Compiler.prototype
@@ -179,11 +184,13 @@ CompilerProto.setupElement = function (options) {
  *  Setup observer.
  *  The observer listens for get/set/mutate events on all VM
  *  values/objects and trigger corresponding binding updates.
+ *  It also listens for lifecycle hooks.
  */
 CompilerProto.setupObserver = function () {
 
     var compiler = this,
         bindings = compiler.bindings,
+        options  = compiler.options,
         observer = compiler.observer = new Emitter()
 
     // a hash to hold event proxies for each root level key
@@ -206,6 +213,27 @@ CompilerProto.setupObserver = function () {
             check(key)
             bindings[key].pub()
         })
+    
+    // register hooks
+    hooks.forEach(function (hook) {
+        var fns = options[hook]
+        if (Array.isArray(fns)) {
+            var i = fns.length
+            // since hooks were merged with child at head,
+            // we loop reversely.
+            while (i--) {
+                register(hook, fns[i])
+            }
+        } else if (fns) {
+            register(hook, fns)
+        }
+    })
+
+    function register (hook, fn) {
+        observer.on('hook:' + hook, function () {
+            fn.call(compiler.vm, options)
+        })
+    }
 
     function check (key) {
         if (!bindings[key]) {
@@ -258,7 +286,7 @@ CompilerProto.compile = function (node, root) {
             }
 
         // v-with has 2nd highest priority
-        } else if (!root && ((withKey = utils.attr(node, 'with')) || componentCtor)) {
+        } else if (root !== true && ((withKey = utils.attr(node, 'with')) || componentCtor)) {
 
             directive = Directive.parse('with', withKey || '', compiler, node)
             if (directive) {
@@ -298,7 +326,7 @@ CompilerProto.compile = function (node, root) {
  */
 CompilerProto.compileNode = function (node) {
     var i, j,
-        attrs = node.attributes,
+        attrs = slice.call(node.attributes),
         prefix = config.prefix + '-'
     // parse if has attributes
     if (attrs && attrs.length) {
@@ -339,10 +367,7 @@ CompilerProto.compileNode = function (node) {
     }
     // recursively compile childNodes
     if (node.childNodes.length) {
-        var nodes = slice.call(node.childNodes)
-        for (i = 0, j = nodes.length; i < j; i++) {
-            this.compile(nodes[i])
-        }
+        slice.call(node.childNodes).forEach(this.compile, this)
     }
 }
 
@@ -357,7 +382,7 @@ CompilerProto.compileTextNode = function (node) {
 
     for (var i = 0, l = tokens.length; i < l; i++) {
         token = tokens[i]
-        directive = null
+        directive = partialNodes = null
         if (token.key) { // a binding
             if (token.key.charAt(0) === '>') { // a partial
                 partialId = token.key.slice(1).trim()
@@ -383,6 +408,8 @@ CompilerProto.compileTextNode = function (node) {
 
         // insert node
         node.parentNode.insertBefore(el, node)
+
+        // bind directive
         if (directive) {
             this.bindDirective(directive)
         }
@@ -391,10 +418,7 @@ CompilerProto.compileTextNode = function (node) {
         // will change from the fragment to the correct parentNode.
         // This could affect directives that need access to its element's parentNode.
         if (partialNodes) {
-            for (var j = 0, k = partialNodes.length; j < k; j++) {
-                this.compile(partialNodes[j])
-            }
-            partialNodes = null
+            partialNodes.forEach(this.compile, this)
         }
 
     }
@@ -409,9 +433,9 @@ CompilerProto.bindDirective = function (directive) {
     // keep track of it so we can unbind() later
     this.dirs.push(directive)
 
-    // for a simple directive, simply call its bind() or _update()
+    // for empty or literal directives, simply call its bind()
     // and we're done.
-    if (directive.isEmpty) {
+    if (directive.isEmpty || directive.isLiteral) {
         if (directive.bind) directive.bind()
         return
     }
@@ -585,14 +609,12 @@ CompilerProto.getOption = function (type, id) {
 }
 
 /**
- *  Execute a user hook
+ *  Emit lifecycle events to trigger hooks
  */
-CompilerProto.execHook = function (id, alt) {
-    var opts = this.options,
-        hook = opts[id] || opts[alt]
-    if (hook) {
-        hook.call(this.vm, opts)
-    }
+CompilerProto.execHook = function (event) {
+    event = 'hook:' + event
+    this.observer.emit(event)
+    this.emitter.emit(event)
 }
 
 /**
@@ -617,6 +639,10 @@ CompilerProto.parseDeps = function () {
  */
 CompilerProto.destroy = function () {
 
+    // avoid being called more than once
+    // this is irreversible!
+    if (this.destroyed) return
+
     var compiler = this,
         i, key, dir, instances, binding,
         vm          = compiler.vm,
@@ -626,10 +652,6 @@ CompilerProto.destroy = function () {
         bindings    = compiler.bindings
 
     compiler.execHook('beforeDestroy')
-
-    // unwatch
-    compiler.observer.off()
-    compiler.emitter.off()
 
     // unbind all direcitves
     i = directives.length
@@ -679,7 +701,13 @@ CompilerProto.destroy = function () {
         vm.$remove()
     }
 
+    this.destroyed = true
+    // emit destroy hook
     compiler.execHook('afterDestroy')
+
+    // finally, unregister all listeners
+    compiler.observer.off()
+    compiler.emitter.off()
 }
 
 // Helpers --------------------------------------------------------------------

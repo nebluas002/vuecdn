@@ -11,11 +11,11 @@ var utils      = require('./utils'),
     // match up to the first single pipe, ignore those within quotes.
     KEY_RE          = /^(?:['"](?:\\.|[^'"])*['"]|\\.|[^\|]|\|\|)+/,
 
-    ARG_RE          = /^([\w- ]+):(.+)$/,
+    ARG_RE          = /^([\w-$ ]+):(.+)$/,
     FILTERS_RE      = /\|[^\|]+/g,
     FILTER_TOKEN_RE = /[^\s']+|'[^']+'/g,
     NESTING_RE      = /^\$(parent|root)\./,
-    SINGLE_VAR_RE   = /^[\w\.\$]+$/
+    SINGLE_VAR_RE   = /^[\w\.$]+$/
 
 /**
  *  Directive class
@@ -48,6 +48,13 @@ function Directive (definition, expression, rawKey, compiler, node) {
         return
     }
 
+    // for literal directives, all we need
+    // is the expression as the value.
+    if (this.isLiteral) {
+        this.value = expression.trim()
+        return
+    }
+
     this.expression = expression.trim()
     this.rawKey     = rawKey
     
@@ -58,8 +65,7 @@ function Directive (definition, expression, rawKey, compiler, node) {
     var filterExps = this.expression.slice(rawKey.length).match(FILTERS_RE)
     if (filterExps) {
         this.filters = []
-        var i = 0, l = filterExps.length, filter
-        for (; i < l; i++) {
+        for (var i = 0, l = filterExps.length, filter; i < l; i++) {
             filter = parseFilter(filterExps[i], this.compiler)
             if (filter) this.filters.push(filter)
         }
