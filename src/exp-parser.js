@@ -1,6 +1,8 @@
-var utils = require('./utils'),
-    stringSaveRE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
-    stringRestoreRE = /"(\d+)"/g
+var utils           = require('./utils'),
+    stringSaveRE    = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
+    stringRestoreRE = /"(\d+)"/g,
+    constructorRE   = new RegExp('constructor'.split('').join('[\'"+, ]*')),
+    unicodeRE       = /\\u\d\d\d\d/
 
 // Variable extraction scooped from https://github.com/RubyLouvre/avalon
 
@@ -109,6 +111,11 @@ module.exports = {
      *  created as bindings.
      */
     parse: function (exp, compiler) {
+        // unicode and 'constructor' are not allowed for XSS security.
+        if (unicodeRE.test(exp) || constructorRE.test(exp)) {
+            utils.warn('Unsafe expression: ' + exp)
+            return function () {}
+        }
         // extract variable names
         var vars = getVariables(exp)
         if (!vars.length) {

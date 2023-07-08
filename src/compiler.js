@@ -330,7 +330,7 @@ CompilerProto.compileNode = function (node) {
         prefix = config.prefix + '-'
     // parse if has attributes
     if (attrs && attrs.length) {
-        var attr, isDirective, exps, exp, directive
+        var attr, isDirective, exps, exp, directive, dirname
         // loop through all attributes
         i = attrs.length
         while (i--) {
@@ -346,7 +346,8 @@ CompilerProto.compileNode = function (node) {
                 j = exps.length
                 while (j--) {
                     exp = exps[j]
-                    directive = Directive.parse(attr.name.slice(prefix.length), exp, this, node)
+                    dirname = attr.name.slice(prefix.length)
+                    directive = Directive.parse(dirname, exp, this, node)
                     if (directive) {
                         this.bindDirective(directive)
                     }
@@ -362,7 +363,9 @@ CompilerProto.compileNode = function (node) {
                 }
             }
 
-            if (isDirective) node.removeAttribute(attr.name)
+            if (isDirective && dirname !== 'cloak') {
+                node.removeAttribute(attr.name)
+            }
         }
     }
     // recursively compile childNodes
@@ -435,7 +438,7 @@ CompilerProto.bindDirective = function (directive) {
 
     // for empty or literal directives, simply call its bind()
     // and we're done.
-    if (directive.isEmpty || directive.isLiteral) {
+    if (directive.isEmpty || !directive._update) {
         if (directive.bind) directive.bind()
         return
     }
@@ -653,6 +656,9 @@ CompilerProto.destroy = function () {
 
     compiler.execHook('beforeDestroy')
 
+    // unobserve data
+    Observer.unobserve(compiler.data, '', compiler.observer)
+
     // unbind all direcitves
     i = directives.length
     while (i--) {
@@ -660,7 +666,8 @@ CompilerProto.destroy = function () {
         // if this directive is an instance of an external binding
         // e.g. a directive that refers to a variable on the parent VM
         // we need to remove it from that binding's instances
-        if (!dir.isEmpty && dir.binding.compiler !== compiler) {
+        // * empty and literal bindings do not have binding.
+        if (dir.binding && dir.binding.compiler !== compiler) {
             instances = dir.binding.instances
             if (instances) instances.splice(instances.indexOf(dir), 1)
         }
@@ -673,13 +680,10 @@ CompilerProto.destroy = function () {
         exps[i].unbind()
     }
 
-    // unbind/unobserve all own bindings
+    // unbind all own bindings
     for (key in bindings) {
         binding = bindings[key]
         if (binding) {
-            if (binding.root) {
-                Observer.unobserve(binding.value, binding.key, compiler.observer)
-            }
             binding.unbind()
         }
     }

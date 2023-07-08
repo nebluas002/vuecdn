@@ -37,6 +37,40 @@ describe('UNIT: API', function () {
 
     })
 
+    describe('require()', function () {
+        
+        it('should expose internal modules', function () {
+            var c = Vue.require('config'),
+                cc = require('vue/src/config')
+            assert.strictEqual(c, cc)
+        })
+
+    })
+
+    describe('use()', function () {
+        
+        it('should install a plugin via its install function', function () {
+            var called = false
+            Vue.use({
+                install: function (vue) {
+                    called = true
+                    assert.strictEqual(vue, Vue)
+                }
+            })
+            assert.ok(called)
+        })
+
+        it('should install a plugin if its a function itself', function () {
+            var called = false
+            Vue.use(function (vue) {
+                called = true
+                assert.strictEqual(vue, Vue)
+            })
+            assert.ok(called)
+        })
+
+    })
+
     describe('filter()', function () {
 
         var reverse = function (input) {
@@ -108,13 +142,13 @@ describe('UNIT: API', function () {
             assert.notOk(el.getAttribute(testId + 'bind'), 'should have called unbind()')
         })
 
-        it('should create literal directive if given option', function () {
+        it('should not bind directive if no update() is provided', function () {
             var called = false
             Vue.directive('test-literal', {
-                isLiteral: true,
                 bind: function () {
                     called = true
-                    assert.strictEqual(this.value, 'hihi')
+                    assert.strictEqual(this.expression, 'hihi')
+                    assert.notOk(this.binding)
                 }
             })
             new Vue({

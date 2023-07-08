@@ -1,4 +1,5 @@
 var utils      = require('../utils'),
+    config     = require('../config'),
     transition = require('../transition')
 
 module.exports = {
@@ -12,7 +13,11 @@ module.exports = {
     style     : require('./style'),
 
     attr: function (value) {
-        this.el.setAttribute(this.arg, value)
+        if (value || value === 0) {
+            this.el.setAttribute(this.arg, value)
+        } else {
+            this.el.removeAttribute(this.arg)
+        }
     },
 
     text: function (value) {
@@ -39,6 +44,15 @@ module.exports = {
                 utils.addClass(this.el, value)
                 this.lastVal = value
             }
+        }
+    },
+
+    cloak: {
+        bind: function () {
+            var el = this.el
+            this.compiler.observer.once('hook:ready', function () {
+                el.removeAttribute(config.prefix + '-cloak')
+            })
         }
     }
 
