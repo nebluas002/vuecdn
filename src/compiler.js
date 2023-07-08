@@ -45,6 +45,7 @@ function Compiler (vm, options) {
     compiler.vm  = vm
     compiler.bindings = makeHash()
     compiler.dirs = []
+    compiler.deferred = []
     compiler.exps = []
     compiler.computed = []
     compiler.childCompilers = []
@@ -117,10 +118,13 @@ function Compiler (vm, options) {
     // and bind the parsed directives
     compiler.compile(el, true)
 
-    // extract dependencies for computed properties
-    if (compiler.computed.length) {
-        DepsParser.parse(compiler.computed)
+    // bind deferred directives (child components)
+    for (var i = 0, l = compiler.deferred.length; i < l; i++) {
+        compiler.bindDirective(compiler.deferred[i])
     }
+
+    // extract dependencies for computed properties
+    compiler.parseDeps()
 
     // done!
     compiler.init = false
@@ -247,7 +251,10 @@ CompilerProto.compile = function (node, root) {
             directive = Directive.parse('repeat', repeatExp, compiler, node)
             if (directive) {
                 directive.Ctor = componentCtor
-                compiler.bindDirective(directive)
+                // defer child component compilation
+                // so by the time they are compiled, the parent
+                // would have collected all bindings
+                compiler.deferred.push(directive)
             }
 
         // v-with has 2nd highest priority
@@ -256,7 +263,7 @@ CompilerProto.compile = function (node, root) {
             directive = Directive.parse('with', withKey || '', compiler, node)
             if (directive) {
                 directive.Ctor = componentCtor
-                compiler.bindDirective(directive)
+                compiler.deferred.push(directive)
             }
 
         } else {
@@ -589,6 +596,14 @@ CompilerProto.hasKey = function (key) {
     var baseKey = key.split('.')[0]
     return hasOwn.call(this.data, baseKey) ||
         hasOwn.call(this.vm, baseKey)
+}
+
+/**
+ *  Collect dependencies for computed properties
+ */
+CompilerProto.parseDeps = function () {
+    if (!this.computed.length) return
+    DepsParser.parse(this.computed)
 }
 
 /**
