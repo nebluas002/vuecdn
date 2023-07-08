@@ -1,6 +1,6 @@
 {
   "name": "vue",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "author": {
     "name": "Evan You",
     "email": "yyx990803@gmail.com",
@@ -18,6 +18,8 @@
     "type": "git",
     "url": "https://github.com/yyx990803/vue.git"
   },
+  "bugs": "https://github.com/yyx990803/vue/issues",
+  "homepage": "http://vuejs.org",
   "scripts": {
     "test": "grunt travis"
   },

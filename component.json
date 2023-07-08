@@ -1,6 +1,6 @@
 {
     "name": "vue",
-    "version": "0.8.2",
+    "version": "0.8.3",
     "main": "src/main.js",
     "author": "Evan You <yyx990803@gmail.com>",
     "description": "Simple, Fast & Composable MVVM for building interative interfaces",
@@ -27,7 +27,8 @@
         "src/directives/repeat.js",
         "src/directives/on.js",
         "src/directives/model.js",
-        "src/directives/with.js"
+        "src/directives/with.js",
+        "src/directives/html.js"
     ],
     "dependencies": {
         "component/emitter": "*"
