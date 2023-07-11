@@ -1,11 +1,12 @@
 var utils = require('../utils'),
-    isIE9 = navigator.userAgent.indexOf('MSIE 9.0') > 0
+    isIE9 = navigator.userAgent.indexOf('MSIE 9.0') > 0,
+    filter = [].filter
 
 /**
  *  Returns an array of values from a multiple select
  */
 function getMultipleSelectOptions (select) {
-    return Array.prototype.filter
+    return filter
         .call(select.options, function (option) {
             return option.selected
         })
@@ -24,6 +25,7 @@ module.exports = {
             tag  = el.tagName
 
         self.lock = false
+        self.ownerVM = self.binding.compiler.vm
 
         // determine what event to listen to
         self.event =
@@ -111,15 +113,19 @@ module.exports = {
     },
 
     _set: function () {
-        this.vm.$set(
+        this.ownerVM.$set(
             this.key, this.multi
                 ? getMultipleSelectOptions(this.el)
                 : this.el[this.attr]
         )
     },
 
-    update: function (value) {
+    update: function (value, init) {
         /* jshint eqeqeq: false */
+        // sync back inline value if initial data is undefined
+        if (init && value === undefined) {
+            return this._set()
+        }
         if (this.lock) return
         var el = this.el
         if (el.tagName === 'SELECT') { // select dropdown

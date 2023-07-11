@@ -9,12 +9,12 @@ var Emitter     = require('./emitter'),
     ExpParser   = require('./exp-parser'),
     
     // cache methods
-    slice       = Array.prototype.slice,
+    slice       = [].slice,
     log         = utils.log,
     makeHash    = utils.hash,
     extend      = utils.extend,
     def         = utils.defProtected,
-    hasOwn      = Object.prototype.hasOwnProperty,
+    hasOwn      = ({}).hasOwnProperty,
 
     // hooks to register
     hooks = [
@@ -98,12 +98,11 @@ function Compiler (vm, options) {
     // observe the data
     compiler.observeData(data)
     
-    // for repeated items, create an index binding
-    // which should be inenumerable but configurable
+    // for repeated items, create index/key bindings
+    // because they are ienumerable
     if (compiler.repeat) {
-        //data.$index = compiler.repeatIndex
-        def(data, '$index', compiler.repeatIndex, false, true)
         compiler.createBinding('$index')
+        if (data.$key) compiler.createBinding('$key')
     }
 
     // now parse the DOM, during which we will create necessary bindings
@@ -117,6 +116,7 @@ function Compiler (vm, options) {
     compiler.parseDeps()
 
     // done!
+    compiler.rawContent = null
     compiler.init = false
 
     // post compile / ready hook
@@ -137,6 +137,13 @@ CompilerProto.setupElement = function (options) {
 
     var template = options.template
     if (template) {
+        // collect anything already in there
+        /* jshint boss: true */
+        var child,
+            frag = this.rawContent = document.createDocumentFragment()
+        while (child = el.firstChild) {
+            frag.appendChild(child)
+        }
         // replace option: use the first node in
         // the template directly
         if (options.replace && template.childNodes.length === 1) {
@@ -147,7 +154,6 @@ CompilerProto.setupElement = function (options) {
             }
             el = replacer
         } else {
-            el.innerHTML = ''
             el.appendChild(template.cloneNode(true))
         }
     }
@@ -416,9 +422,18 @@ CompilerProto.compileTextNode = function (node) {
         if (token.key) { // a binding
             if (token.key.charAt(0) === '>') { // a partial
                 partialId = token.key.slice(1).trim()
-                partial = this.getOption('partials', partialId)
-                if (partial) {
-                    el = partial.cloneNode(true)
+                if (partialId === 'yield') {
+                    el = this.rawContent
+                } else {
+                    partial = this.getOption('partials', partialId)
+                    if (partial) {
+                        el = partial.cloneNode(true)
+                    } else {
+                        utils.warn('Unknown partial: ' + partialId)
+                        continue
+                    }
+                }
+                if (el) {
                     // save an Array reference of the partial's nodes
                     // so we can compile them AFTER appending the fragment
                     partialNodes = slice.call(el.childNodes)
@@ -550,7 +565,7 @@ CompilerProto.defineProp = function (key, binding) {
     
     var compiler = this,
         data     = compiler.data,
-        ob       = data.__observer__
+        ob       = data.__emitter__
 
     // make sure the key is present in data
     // so it can be observed
@@ -628,11 +643,12 @@ CompilerProto.markComputed = function (binding, value) {
  */
 CompilerProto.getOption = function (type, id) {
     var opts = this.options,
-        parent = this.parentCompiler
+        parent = this.parentCompiler,
+        globalAssets = config.globalAssets
     return (opts[type] && opts[type][id]) || (
         parent
             ? parent.getOption(type, id)
-            : utils[type] && utils[type][id]
+            : globalAssets[type] && globalAssets[type][id]
     )
 }
 

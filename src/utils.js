@@ -1,34 +1,27 @@
 var config    = require('./config'),
     attrs     = config.attrs,
-    toString  = Object.prototype.toString,
-    join      = Array.prototype.join,
-    console   = window.console,
+    toString  = ({}).toString,
+    join      = [].join,
+    win       = window,
+    console   = win.console,
 
     hasClassList = 'classList' in document.documentElement,
     ViewModel // late def
 
 var defer =
-    window.requestAnimationFrame ||
-    window.webkitRequestAnimationFrame ||
-    window.setTimeout
-
-/**
- *  Create a prototype-less object
- *  which is a better hash/map
- */
-function makeHash () {
-    return Object.create(null)
-}
+    win.requestAnimationFrame ||
+    win.webkitRequestAnimationFrame ||
+    win.setTimeout
 
 var utils = module.exports = {
 
-    hash: makeHash,
-
-    // global storage for user-registered
-    // vms, partials and transitions
-    components  : makeHash(),
-    partials    : makeHash(),
-    transitions : makeHash(),
+    /**
+     *  Create a prototype-less object
+     *  which is a better hash/map
+     */
+    hash: function () {
+        return Object.create(null)
+    },
 
     /**
      *  get an attribute and remove it.
