@@ -1,5 +1,4 @@
 var Observer   = require('../observer'),
-    Emitter    = require('../emitter'),
     utils      = require('../utils'),
     config     = require('../config'),
     transition = require('../transition'),
@@ -91,7 +90,7 @@ module.exports = {
         // extract transition information
         this.hasTrans = el.hasAttribute(config.attrs.transition)
         // extract child Id, if any
-        this.childId = utils.attr(el, 'component-id')
+        this.childId = utils.attr(el, 'ref')
 
         // create a comment node as a reference node for DOM insertions
         this.ref = document.createComment(config.prefix + '-repeat-' + this.key)
@@ -107,7 +106,10 @@ module.exports = {
             var method = mutation.method
             mutationHandlers[method].call(self, mutation)
             if (method !== 'push' && method !== 'pop') {
-                self.updateIndex()
+                var i = arr.length
+                while (i--) {
+                    arr[i].$index = i
+                }
             }
             if (method === 'push' || method === 'unshift' || method === 'splice') {
                 self.changed()
@@ -117,6 +119,8 @@ module.exports = {
     },
 
     update: function (collection, init) {
+        
+        if (collection === this.collection) return
 
         this.reset()
         // attach an object to container to hold handlers
@@ -136,7 +140,7 @@ module.exports = {
 
         // listen for collection mutation events
         // the collection has been augmented during Binding.set()
-        if (!collection.__observer__) Observer.watchArray(collection, null, new Emitter())
+        if (!collection.__observer__) Observer.watchArray(collection)
         collection.__observer__.on('mutate', this.mutationListener)
 
         // create child-vms and append to DOM
@@ -157,6 +161,7 @@ module.exports = {
         this.queued = true
         var self = this
         setTimeout(function () {
+            if (!self.compiler) return
             self.compiler.parseDeps()
             self.queued = false
         }, 0)
@@ -220,16 +225,6 @@ module.exports = {
                     }
                 })
             }
-        }
-    },
-
-    /**
-     *  Update index of each item after a mutation
-     */
-    updateIndex: function () {
-        var i = this.vms.length
-        while (i--) {
-            this.vms[i].$data.$index = i
         }
     },
 
