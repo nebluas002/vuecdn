@@ -321,12 +321,11 @@ CompilerProto.setupObserver = function () {
     var compiler = this,
         bindings = compiler.bindings,
         options  = compiler.options,
-        observer = compiler.observer = new Emitter()
+        observer = compiler.observer = new Emitter(compiler.vm)
 
     // a hash to hold event proxies for each root level key
     // so they can be referenced and removed later
     observer.proxies = {}
-    observer._ctx = compiler.vm
 
     // add own listeners which trigger binding updates
     observer
@@ -466,11 +465,11 @@ CompilerProto.checkPriorityDir = function (dirname, node, root) {
         root !== true &&
         (Ctor = this.resolveComponent(node, undefined, true))
     ) {
-        directive = Directive.parse(dirname, '', this, node)
+        directive = Directive.build(dirname, '', this, node)
         directive.Ctor = Ctor
     } else {
         expression = utils.attr(node, dirname)
-        directive = expression && Directive.parse(dirname, expression, this, node)
+        directive = expression && Directive.build(dirname, expression, this, node)
     }
     if (directive) {
         if (root === true) {
@@ -542,7 +541,7 @@ CompilerProto.compileElement = function (node, root) {
                 while (l--) {
                     exp = exps[l]
                     dirname = attr.name.slice(prefix.length)
-                    directive = Directive.parse(dirname, exp, this, node)
+                    directive = Directive.build(dirname, exp, this, node)
 
                     if (dirname === 'with') {
                         this.bindDirective(directive, this.parent)
@@ -555,7 +554,7 @@ CompilerProto.compileElement = function (node, root) {
                 // non directive attribute, check interpolation tags
                 exp = TextParser.parseAttr(attr.value)
                 if (exp) {
-                    directive = Directive.parse('attr', attr.name + ':' + exp, this, node)
+                    directive = Directive.build('attr', attr.name + ':' + exp, this, node)
                     if (params && params.indexOf(attr.name) > -1) {
                         // a param attribute... we should use the parent binding
                         // to avoid circular updates like size={{size}}
@@ -596,14 +595,14 @@ CompilerProto.compileTextNode = function (node) {
         if (token.key) { // a binding
             if (token.key.charAt(0) === '>') { // a partial
                 el = document.createComment('ref')
-                directive = Directive.parse('partial', token.key.slice(1), this, el)
+                directive = Directive.build('partial', token.key.slice(1), this, el)
             } else {
                 if (!token.html) { // text binding
                     el = document.createTextNode('')
-                    directive = Directive.parse('text', token.key, this, el)
+                    directive = Directive.build('text', token.key, this, el)
                 } else { // html binding
                     el = document.createComment(config.prefix + '-html')
-                    directive = Directive.parse('html', token.key, this, el)
+                    directive = Directive.build('html', token.key, this, el)
                 }
             }
         } else { // a plain string
@@ -779,11 +778,11 @@ CompilerProto.defineMeta = function (key, binding) {
  *  an anonymous computed property
  */
 CompilerProto.defineExp = function (key, binding, directive) {
-    var filters = directive && directive.computeFilters && directive.filters,
-        exp     = filters ? directive.expression : key,
-        getter  = this.expCache[exp]
+    var computedKey = directive && directive.computedKey,
+        exp         = computedKey ? directive.expression : key,
+        getter      = this.expCache[exp]
     if (!getter) {
-        getter = this.expCache[exp] = ExpParser.parse(key, this, null, filters)
+        getter = this.expCache[exp] = ExpParser.parse(computedKey || key, this)
     }
     if (getter) {
         this.markComputed(binding, getter)
@@ -828,15 +827,19 @@ CompilerProto.markComputed = function (binding, value) {
 /**
  *  Retrive an option from the compiler
  */
-CompilerProto.getOption = function (type, id) {
+CompilerProto.getOption = function (type, id, silent) {
     var opts = this.options,
         parent = this.parent,
-        globalAssets = config.globalAssets
-    return (opts[type] && opts[type][id]) || (
-        parent
-            ? parent.getOption(type, id)
-            : globalAssets[type] && globalAssets[type][id]
-    )
+        globalAssets = config.globalAssets,
+        res = (opts[type] && opts[type][id]) || (
+            parent
+                ? parent.getOption(type, id, silent)
+                : globalAssets[type] && globalAssets[type][id]
+        )
+    if (!res && !silent) {
+        utils.warn('Unknown ' + type.slice(0, -1) + ': ' + id)
+    }
+    return res
 }
 
 /**
@@ -883,7 +886,7 @@ CompilerProto.resolveComponent = function (node, data, test) {
         tagName = node.tagName,
         id      = this.eval(exp, data),
         tagId   = (tagName.indexOf('-') > 0 && tagName.toLowerCase()),
-        Ctor    = this.getOption('components', id || tagId)
+        Ctor    = this.getOption('components', id || tagId, true)
 
     if (id && !Ctor) {
         utils.warn('Unknown component: ' + id)
