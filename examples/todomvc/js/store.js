@@ -2,21 +2,17 @@
 
 (function (exports) {
 
-    'use strict'
+    'use strict';
 
-    var STORAGE_KEY = 'todos-vuejs'
-    var todos = null
+    var STORAGE_KEY = 'todos-vuejs';
 
     exports.todoStorage = {
         fetch: function () {
-            if (!todos) {
-                todos = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-            }
-            return todos
+            return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
         },
-        save: function () {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
+        save: function (todos) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
         }
-    }
+    };
 
-})(window)
+})(window);

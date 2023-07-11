@@ -25,16 +25,19 @@ function ViewModel (options) {
 var VMProto = ViewModel.prototype
 
 /**
+ *  Convenience function to get a value from
+ *  a keypath
+ */
+def(VMProto, '$get', function (key, value) {
+    return utils.get(this, key, value)
+})
+
+/**
  *  Convenience function to set an actual nested value
  *  from a flat key string. Used in directives.
  */
 def(VMProto, '$set', function (key, value) {
-    var path = key.split('.'),
-        obj = this
-    for (var d = 0, l = path.length - 1; d < l; d++) {
-        obj = obj[path[d]]
-    }
-    obj[path[d]] = value
+    utils.set(this, key, value)
 })
 
 /**
@@ -128,37 +131,32 @@ def(VMProto, '$appendTo', function (target, cb) {
 })
 
 def(VMProto, '$remove', function (cb) {
-    var el = this.$el,
-        parent = el.parentNode
-    if (!parent) return
+    var el = this.$el
     transition(el, -1, function () {
-        parent.removeChild(el)
+        if (el.parentNode) {
+            el.parentNode.removeChild(el)
+        }
         if (cb) nextTick(cb)
     }, this.$compiler)
 })
 
 def(VMProto, '$before', function (target, cb) {
     target = query(target)
-    var el = this.$el,
-        parent = target.parentNode
-    if (!parent) return
+    var el = this.$el
     transition(el, 1, function () {
-        parent.insertBefore(el, target)
+        target.parentNode.insertBefore(el, target)
         if (cb) nextTick(cb)
     }, this.$compiler)
 })
 
 def(VMProto, '$after', function (target, cb) {
     target = query(target)
-    var el = this.$el,
-        parent = target.parentNode,
-        next = target.nextSibling
-    if (!parent) return
+    var el = this.$el
     transition(el, 1, function () {
-        if (next) {
-            parent.insertBefore(el, next)
+        if (target.nextSibling) {
+            target.parentNode.insertBefore(el, target.nextSibling)
         } else {
-            parent.appendChild(el)
+            target.parentNode.appendChild(el)
         }
         if (cb) nextTick(cb)
     }, this.$compiler)

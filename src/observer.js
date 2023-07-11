@@ -35,9 +35,18 @@ var ArrayProxy = Object.create(Array.prototype)
 ].forEach(watchMutation)
 
 // Augment the ArrayProxy with convenience methods
-def(ArrayProxy, 'remove', removeElement, !hasProto)
-def(ArrayProxy, 'set', replaceElement, !hasProto)
-def(ArrayProxy, 'replace', replaceElement, !hasProto)
+def(ArrayProxy, '$set', function (index, data) {
+    return this.splice(index, 1, data)[0]
+}, !hasProto)
+
+def(ArrayProxy, '$remove', function (index) {
+    if (typeof index !== 'number') {
+        index = this.indexOf(index)
+    }
+    if (index > -1) {
+        return this.splice(index, 1)[0]
+    }
+}, !hasProto)
 
 /**
  *  Intercep a mutation event so we can emit the mutation info.
@@ -60,15 +69,18 @@ function watchMutation (method) {
             inserted = args.slice(2)
             removed = result
         }
+        
         // link & unlink
         linkArrayElements(this, inserted)
         unlinkArrayElements(this, removed)
 
         // emit the mutation event
-        this.__emitter__.emit('mutate', null, this, {
-            method: method,
-            args: args,
-            result: result
+        this.__emitter__.emit('mutate', '', this, {
+            method   : method,
+            args     : args,
+            result   : result,
+            inserted : inserted,
+            removed  : removed
         })
 
         return result
@@ -86,8 +98,12 @@ function linkArrayElements (arr, items) {
         while (i--) {
             item = items[i]
             if (isWatchable(item)) {
-                convert(item)
-                watch(item)
+                // if object is not converted for observing
+                // convert it...
+                if (!item.__emitter__) {
+                    convert(item)
+                    watch(item)
+                }
                 owners = item.__emitter__.owners
                 if (owners.indexOf(arr) < 0) {
                     owners.push(arr)
@@ -113,55 +129,25 @@ function unlinkArrayElements (arr, items) {
     }
 }
 
-/**
- *  Convenience method to remove an element in an Array
- *  This will be attached to observed Array instances
- */
-function removeElement (index) {
-    if (typeof index === 'function') {
-        var i = this.length,
-            removed = []
-        while (i--) {
-            if (index(this[i])) {
-                removed.push(this.splice(i, 1)[0])
-            }
-        }
-        return removed.reverse()
-    } else {
-        if (typeof index !== 'number') {
-            index = this.indexOf(index)
-        }
-        if (index > -1) {
-            return this.splice(index, 1)[0]
-        }
-    }
-}
+// Object add/delete key augmentation -----------------------------------------
 
-/**
- *  Convenience method to replace an element in an Array
- *  This will be attached to observed Array instances
- */
-function replaceElement (index, data) {
-    if (typeof index === 'function') {
-        var i = this.length,
-            replaced = [],
-            replacer
-        while (i--) {
-            replacer = index(this[i])
-            if (replacer !== undefined) {
-                replaced.push(this.splice(i, 1, replacer)[0])
-            }
-        }
-        return replaced.reverse()
-    } else {
-        if (typeof index !== 'number') {
-            index = this.indexOf(index)
-        }
-        if (index > -1) {
-            return this.splice(index, 1, data)[0]
-        }
-    }
-}
+var ObjProxy = Object.create(Object.prototype)
+
+def(ObjProxy, '$add', function (key, val) {
+    if (key in this) return
+    this[key] = val
+    convertKey(this, key)
+    // emit a propagating set event
+    this.__emitter__.emit('set', key, val, true)
+}, !hasProto)
+
+def(ObjProxy, '$delete', function (key) {
+    if (!(key in this)) return
+    // trigger set events
+    this[key] = undefined
+    delete this[key]
+    this.__emitter__.emit('delete', key)
+}, !hasProto)
 
 // Watch Helpers --------------------------------------------------------------
 
@@ -181,16 +167,27 @@ function convert (obj) {
     if (obj.__emitter__) return true
     var emitter = new Emitter()
     def(obj, '__emitter__', emitter)
-    emitter.on('set', function () {
-        var owners = obj.__emitter__.owners,
-            i = owners.length
-        while (i--) {
-            owners[i].__emitter__.emit('set', '', '', true)
-        }
-    })
+    emitter
+        .on('set', function (key, val, propagate) {
+            if (propagate) propagateChange(obj)
+        })
+        .on('mutate', function () {
+            propagateChange(obj)
+        })
     emitter.values = utils.hash()
     emitter.owners = []
     return false
+}
+
+/**
+ *  Propagate an array element's change to its owner arrays
+ */
+function propagateChange (obj) {
+    var owners = obj.__emitter__.owners,
+        i = owners.length
+    while (i--) {
+        owners[i].__emitter__.emit('set', '', '', true)
+    }
 }
 
 /**
@@ -206,9 +203,24 @@ function watch (obj) {
 }
 
 /**
+ *  Augment target objects with modified
+ *  methods
+ */
+function augment (target, src) {
+    if (hasProto) {
+        target.__proto__ = src
+    } else {
+        for (var key in src) {
+            def(target, key, src[key])
+        }
+    }
+}
+
+/**
  *  Watch an Object, recursive.
  */
 function watchObject (obj) {
+    augment(obj, ObjProxy)
     for (var key in obj) {
         convertKey(obj, key)
     }
@@ -219,13 +231,7 @@ function watchObject (obj) {
  *  and add augmentations by intercepting the prototype chain
  */
 function watchArray (arr) {
-    if (hasProto) {
-        arr.__proto__ = ArrayProxy
-    } else {
-        for (var key in ArrayProxy) {
-            def(arr, key, ArrayProxy[key])
-        }
-    }
+    augment(arr, ArrayProxy)
     linkArrayElements(arr, arr)
 }
 
@@ -251,7 +257,7 @@ function convertKey (obj, key) {
         get: function () {
             var value = values[key]
             // only emit get on tip values
-            if (pub.shouldGet && typeOf(value) !== OBJECT) {
+            if (pub.shouldGet) {
                 emitter.emit('get', key)
             }
             return value
@@ -270,7 +276,7 @@ function convertKey (obj, key) {
         values[key] = val
         emitter.emit('set', key, val, propagate)
         if (Array.isArray(val)) {
-            emitter.emit('set', key + '.length', val.length)
+            emitter.emit('set', key + '.length', val.length, propagate)
         }
         observe(val, key, emitter)
     }

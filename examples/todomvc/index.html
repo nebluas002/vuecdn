@@ -28,8 +28,7 @@
                 <ul id="todo-list">
                     <li
                         class="todo"
-                        v-repeat="todos"
-                        v-if="filterTodo(this)"
+                        v-repeat="todos | filterTodos"
                         v-class="
                             completed : completed,
                             editing   : this == editedTodo
@@ -40,7 +39,6 @@
                                 class="toggle"
                                 type="checkbox"
                                 v-model="completed"
-                                v-on="change: toggleTodo(this)"
                             >
                             <label v-text="title" v-on="dblclick: editTodo(this)"></label>
                             <button class="destroy" v-on="click: removeTodo(this)"></button>
