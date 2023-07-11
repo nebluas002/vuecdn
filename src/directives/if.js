@@ -1,5 +1,8 @@
 var utils    = require('../utils')
 
+/**
+ *  Manages a conditional child VM
+ */
 module.exports = {
 
     bind: function () {
@@ -13,10 +16,16 @@ module.exports = {
         this.parent.removeChild(this.el)
 
         if (utils.attr(this.el, 'view')) {
-            utils.warn('Conflict: v-if cannot be used together with v-view')
+            utils.warn(
+                'Conflict: v-if cannot be used together with v-view. ' +
+                'Just set v-view\'s binding value to empty string to empty it.'
+            )
         }
         if (utils.attr(this.el, 'repeat')) {
-            utils.warn('Conflict: v-if cannot be used together with v-repeat')
+            utils.warn(
+                'Conflict: v-if cannot be used together with v-repeat. ' +
+                'Use `v-show` or the `filterBy` filter instead.'
+            )
         }
     },
 

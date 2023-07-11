@@ -3,19 +3,17 @@
 var Emitter  = require('./emitter'),
     utils    = require('./utils'),
     // cache methods
-    typeOf   = utils.typeOf,
     def      = utils.defProtected,
+    isObject = utils.isObject,
+    isArray  = Array.isArray,
+    hasOwn   = ({}).hasOwnProperty,
+    oDef     = Object.defineProperty,
     slice    = [].slice,
-    // types
-    OBJECT   = 'Object',
-    ARRAY    = 'Array',
     // fix for IE + __proto__ problem
     // define methods as inenumerable if __proto__ is present,
     // otherwise enumerable so we can loop through and manually
     // attach to array instances
-    hasProto = ({}).__proto__,
-    // lazy load
-    ViewModel
+    hasProto = ({}).__proto__
 
 // Array Mutation Handlers & Augmentations ------------------------------------
 
@@ -134,7 +132,7 @@ function unlinkArrayElements (arr, items) {
 var ObjProxy = Object.create(Object.prototype)
 
 def(ObjProxy, '$add', function (key, val) {
-    if (key in this) return
+    if (hasOwn.call(this, key)) return
     this[key] = val
     convertKey(this, key)
     // emit a propagating set event
@@ -142,7 +140,7 @@ def(ObjProxy, '$add', function (key, val) {
 }, !hasProto)
 
 def(ObjProxy, '$delete', function (key) {
-    if (!(key in this)) return
+    if (!(hasOwn.call(this, key))) return
     // trigger set events
     this[key] = undefined
     delete this[key]
@@ -155,9 +153,7 @@ def(ObjProxy, '$delete', function (key) {
  *  Check if a value is watchable
  */
 function isWatchable (obj) {
-    ViewModel = ViewModel || require('./viewmodel')
-    var type = typeOf(obj)
-    return (type === OBJECT || type === ARRAY) && !(obj instanceof ViewModel)
+    return typeof obj === 'object' && obj && !obj.$compiler
 }
 
 /**
@@ -194,11 +190,10 @@ function propagateChange (obj) {
  *  Watch target based on its type
  */
 function watch (obj) {
-    var type = typeOf(obj)
-    if (type === OBJECT) {
-        watchObject(obj)
-    } else if (type === ARRAY) {
+    if (isArray(obj)) {
         watchArray(obj)
+    } else {
+        watchObject(obj)
     }
 }
 
@@ -253,7 +248,9 @@ function convertKey (obj, key) {
 
     init(obj[key])
 
-    Object.defineProperty(obj, key, {
+    oDef(obj, key, {
+        enumerable: true,
+        configurable: true,
         get: function () {
             var value = values[key]
             // only emit get on tip values
@@ -275,7 +272,7 @@ function convertKey (obj, key) {
     function init (val, propagate) {
         values[key] = val
         emitter.emit('set', key, val, propagate)
-        if (Array.isArray(val)) {
+        if (isArray(val)) {
             emitter.emit('set', key + '.length', val.length, propagate)
         }
         observe(val, key, emitter)
@@ -289,11 +286,11 @@ function convertKey (obj, key) {
  *  all of its properties.
  */
 function emitSet (obj) {
-    var type = typeOf(obj),
-        emitter = obj && obj.__emitter__
-    if (type === ARRAY) {
+    var emitter = obj && obj.__emitter__
+    if (!emitter) return
+    if (isArray(obj)) {
         emitter.emit('set', 'length', obj.length)
-    } else if (type === OBJECT) {
+    } else {
         var key, val
         for (key in obj) {
             val = obj[key]
@@ -310,19 +307,18 @@ function emitSet (obj) {
  *  emit a set event with undefined value.
  */
 function copyPaths (newObj, oldObj) {
-    if (typeOf(oldObj) !== OBJECT || typeOf(newObj) !== OBJECT) {
+    if (!isObject(newObj) || !isObject(oldObj)) {
         return
     }
-    var path, type, oldVal, newVal
+    var path, oldVal, newVal
     for (path in oldObj) {
-        if (!(path in newObj)) {
+        if (!(hasOwn.call(newObj, path))) {
             oldVal = oldObj[path]
-            type = typeOf(oldVal)
-            if (type === OBJECT) {
+            if (isArray(oldVal)) {
+                newObj[path] = []
+            } else if (isObject(oldVal)) {
                 newVal = newObj[path] = {}
                 copyPaths(newVal, oldVal)
-            } else if (type === ARRAY) {
-                newObj[path] = []
             } else {
                 newObj[path] = undefined
             }
@@ -344,9 +340,9 @@ function ensurePath (obj, key) {
         }
         obj = obj[sec]
     }
-    if (typeOf(obj) === OBJECT) {
+    if (isObject(obj)) {
         sec = path[i]
-        if (!(sec in obj)) {
+        if (!(hasOwn.call(obj, sec))) {
             obj[sec] = undefined
             if (obj.__emitter__) convertKey(obj, sec)
         }

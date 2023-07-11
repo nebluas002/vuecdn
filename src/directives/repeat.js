@@ -1,11 +1,18 @@
 var utils      = require('../utils'),
     config     = require('../config')
 
+/**
+ *  Binding that manages VMs based on an Array
+ */
 module.exports = {
 
     bind: function () {
 
-        this.identifier = '$repeat' + this.id
+        this.identifier = '$r' + this.id
+
+        // a hash to cache the same expressions on repeated instances
+        // so they don't have to be compiled for every single instance
+        this.expCache = utils.hash()
 
         var el   = this.el,
             ctn  = this.container = el.parentNode
@@ -26,8 +33,12 @@ module.exports = {
 
     update: function (collection) {
 
-        if (utils.typeOf(collection) === 'Object') {
-            collection = utils.objectToArray(collection)
+        if (!Array.isArray(collection)) {
+            if (utils.isObject(collection)) {
+                collection = utils.objectToArray(collection)
+            } else {
+                utils.warn('v-repeat only accepts Array or Object values.')
+            }
         }
 
         // if initiating with an empty collection, we need to
@@ -43,7 +54,7 @@ module.exports = {
         this.oldCollection = this.collection
         collection = this.collection = collection || []
 
-        var isObject = collection[0] && utils.typeOf(collection[0]) === 'Object'
+        var isObject = collection[0] && utils.isObject(collection[0])
         this.vms = this.oldCollection
             ? this.diff(collection, isObject)
             : this.init(collection, isObject)
@@ -63,8 +74,10 @@ module.exports = {
         new Ctor({
             el     : el,
             parent : this.vm,
+            data   : { $index: 0 },
             compilerOptions: {
-                repeat: true
+                repeat: true,
+                expCache: this.expCache
             }
         }).$destroy()
         this.initiated = true
@@ -106,7 +119,7 @@ module.exports = {
             item = newCollection[i]
             if (isObject) {
                 item.$index = i
-                if (item[this.identifier]) {
+                if (item.__emitter__ && item.__emitter__[this.identifier]) {
                     // this piece of data is being reused.
                     // record its final position in reused vms
                     item.$reused = true
@@ -145,7 +158,7 @@ module.exports = {
                 vms[vm.$index] = vm
             } else {
                 // this one can be destroyed.
-                delete item[this.identifier]
+                delete item.__emitter__[this.identifier]
                 vm.$destroy()
             }
         }
@@ -199,9 +212,10 @@ module.exports = {
         if (wrap) {
             raw = data
             alias = this.arg || '$value'
-            data = { $index: index }
+            data = {}
             data[alias] = raw
         }
+        data.$index = index
 
         var el = this.el.cloneNode(true),
             Ctor = this.compiler.resolveComponent(el, data),
@@ -210,13 +224,13 @@ module.exports = {
                 data: data,
                 parent: this.vm,
                 compilerOptions: {
-                    repeat: true
+                    repeat: true,
+                    expCache: this.expCache
                 }
             })
 
         // attach an ienumerable identifier
-        utils.defProtected(data, this.identifier, true)
-        vm.$index = index
+        data.__emitter__[this.identifier] = true
 
         if (wrap) {
             var self = this,

@@ -135,8 +135,7 @@ function parseFilter (filter, compiler) {
  *  during initialization.
  */
 DirProto.update = function (value, init) {
-    var type = utils.typeOf(value)
-    if (init || value !== this.value || type === 'Object' || type === 'Array') {
+    if (init || value !== this.value || (value && typeof value === 'object')) {
         this.value = value
         if (this._update) {
             this._update(
@@ -191,7 +190,7 @@ Directive.parse = function (dirname, expression, compiler, node) {
 
     var dir = compiler.getOption('directives', dirname) || directives[dirname]
     if (!dir) {
-        utils.warn('unknown directive: ' + dirname)
+        utils.warn('Unknown directive: ' + dirname)
         return
     }
 
@@ -209,7 +208,7 @@ Directive.parse = function (dirname, expression, compiler, node) {
     if (rawKey || expression === '') {
         return new Directive(dirname, dir, expression, rawKey, compiler, node)
     } else {
-        utils.warn('invalid directive expression: ' + expression)
+        utils.warn('Invalid directive expression: ' + expression)
     }
 }
 

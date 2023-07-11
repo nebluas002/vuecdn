@@ -460,15 +460,15 @@ describe('API', function () {
 
             describe('methods', function () {
                 
-                it('should be mixed to the exteded VM\'s prototype', function () {
-                    var mixins = {
+                it('should be mixed to the exteded VM\'s instances', function () {
+                    var methods = {
                         c: function () {},
                         d: function () {}
                     }
-                    var Test = Vue.extend({ methods: mixins })
-                    for (var key in mixins) {
-                        assert.strictEqual(Test.prototype[key], mixins[key])
-                    }
+                    var Test = Vue.extend({ methods: methods })
+                    var t = new Test()
+                    assert.strictEqual(t.c, methods.c)
+                    assert.strictEqual(t.d, methods.d)
                 })
 
             })
@@ -923,10 +923,15 @@ describe('API', function () {
 
                 describe('created', function () {
                 
-                    it('should be called before compile', function () {
+                    it('should be called before compile and give access to all vm properties', function () {
                         
                         var called = false,
                             Test = Vue.extend({ created: function () {
+                                assert.ok(this.$data)
+                                assert.ok(this.$el)
+                                assert.ok(this.$)
+                                assert.ok(this.$compiler)
+                                assert.ok(this.$root)
                                 assert.ok(this.$options.ok)
                                 called = true
                             }})

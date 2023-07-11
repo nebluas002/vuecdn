@@ -3,7 +3,9 @@ var config    = require('./config'),
     win       = window,
     console   = win.console,
     timeout   = win.setTimeout,
+    def       = Object.defineProperty,
     THIS_RE   = /[^\w]this[^\w]/,
+    OBJECT    = 'object',
     hasClassList = 'classList' in document.documentElement,
     ViewModel // late def
 
@@ -80,21 +82,27 @@ var utils = module.exports = {
      *  or for...in loops.
      */
     defProtected: function (obj, key, val, enumerable, writable) {
-        if (obj.hasOwnProperty(key)) return
-        Object.defineProperty(obj, key, {
+        def(obj, key, {
             value        : val,
-            enumerable   : !!enumerable,
-            writable     : !!writable,
+            enumerable   : enumerable,
+            writable     : writable,
             configurable : true
         })
     },
 
     /**
-     *  Accurate type check
-     *  internal use only, so no need to check for NaN
+     *  A less bullet-proof but more efficient type check
+     *  than Object.prototype.toString
      */
-    typeOf: function (obj) {
-        return toString.call(obj).slice(8, -1)
+    isObject: function (obj) {
+        return typeof obj === OBJECT && obj && !Array.isArray(obj)
+    },
+
+    /**
+     *  A more accurate but less efficient type check
+     */
+    isTrueObject: function (obj) {
+        return toString.call(obj) === '[object Object]'
     },
 
     /**
@@ -131,10 +139,11 @@ var utils = module.exports = {
     /**
      *  simple extend
      */
-    extend: function (obj, ext, protective) {
+    extend: function (obj, ext) {
         for (var key in ext) {
-            if ((protective && obj[key]) || obj[key] === ext[key]) continue
-            obj[key] = ext[key]
+            if (obj[key] !== ext[key]) {
+                obj[key] = ext[key]
+            }
         }
         return obj
     },
@@ -165,6 +174,11 @@ var utils = module.exports = {
         if (template.charAt(0) === '#') {
             var templateNode = document.getElementById(template.slice(1))
             if (!templateNode) return
+            // if its a template tag and the browser supports it,
+            // its content is already a document fragment!
+            if (templateNode.tagName === 'TEMPLATE' && templateNode.content) {
+                return templateNode.content
+            }
             template = templateNode.innerHTML
         }
         var node = document.createElement('div'),
@@ -186,7 +200,7 @@ var utils = module.exports = {
      */
     toConstructor: function (obj) {
         ViewModel = ViewModel || require('./viewmodel')
-        return utils.typeOf(obj) === 'Object'
+        return utils.isObject(obj)
             ? ViewModel.extend(obj)
             : typeof obj === 'function'
                 ? obj
@@ -278,7 +292,7 @@ var utils = module.exports = {
         var res = [], val, data
         for (var key in obj) {
             val = obj[key]
-            data = utils.typeOf(val) === 'Object'
+            data = utils.isObject(val)
                 ? val
                 : { $value: val }
             data.$key = key
@@ -307,7 +321,7 @@ function enableDebug () {
         if (!config.silent && console) {
             console.warn(msg)
             if (config.debug && console.trace) {
-                console.trace(msg)
+                console.trace()
             }
         }
     }
