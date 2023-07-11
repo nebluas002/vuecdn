@@ -30,9 +30,12 @@ var Emitter     = require('./emitter'),
 function Compiler (vm, options) {
 
     var compiler = this
-    // indicate that we are intiating this instance
-    // so we should not run any transitions
-    compiler.init = true
+
+    // default state
+    compiler.init       = true
+    compiler.repeat     = false
+    compiler.destroyed  = false
+    compiler.delayReady = false
 
     // process and extend options
     options = compiler.options = options || makeHash()
@@ -45,17 +48,17 @@ function Compiler (vm, options) {
     extend(compiler, options.compilerOptions)
 
     // initialize element
-    var el = compiler.setupElement(options)
-    log('\nnew VM instance:', el.tagName, '\n')
+    var el = compiler.el = compiler.setupElement(options)
+    log('\nnew VM instance: ' + el.tagName + '\n')
 
     // set compiler properties
-    compiler.vm  = vm
+    compiler.vm = el.vue_vm = vm
     compiler.bindings = makeHash()
     compiler.dirs = []
     compiler.deferred = []
     compiler.exps = []
     compiler.computed = []
-    compiler.childCompilers = []
+    compiler.children = []
     compiler.emitter = new Emitter()
     compiler.emitter._ctx = vm
     compiler.delegators = makeHash()
@@ -63,21 +66,25 @@ function Compiler (vm, options) {
     // set inenumerable VM properties
     def(vm, '$', makeHash())
     def(vm, '$el', el)
+    def(vm, '$options', options)
     def(vm, '$compiler', compiler)
-    def(vm, '$root', getRoot(compiler).vm)
 
     // set parent VM
     // and register child id on parent
-    var parent = compiler.parentCompiler,
+    var parentVM = options.parent,
         childId = utils.attr(el, 'ref')
-    if (parent) {
-        parent.childCompilers.push(compiler)
-        def(vm, '$parent', parent.vm)
+    if (parentVM) {
+        compiler.parent = parentVM.$compiler
+        parentVM.$compiler.children.push(compiler)
+        def(vm, '$parent', parentVM)
         if (childId) {
             compiler.childId = childId
-            parent.vm.$[childId] = vm
+            parentVM.$[childId] = vm
         }
     }
+
+    // set root
+    def(vm, '$root', getRoot(compiler).vm)
 
     // setup observer
     compiler.setupObserver()
@@ -132,7 +139,9 @@ function Compiler (vm, options) {
     compiler.init = false
 
     // post compile / ready hook
-    compiler.execHook('ready')
+    if (!compiler.delayReady) {
+        compiler.execHook('ready')
+    }
 }
 
 var CompilerProto = Compiler.prototype
@@ -143,7 +152,7 @@ var CompilerProto = Compiler.prototype
  */
 CompilerProto.setupElement = function (options) {
     // create the node first
-    var el = this.el = typeof options.el === 'string'
+    var el = typeof options.el === 'string'
         ? document.querySelector(options.el)
         : options.el || document.createElement(options.tagName || 'div')
 
@@ -215,12 +224,21 @@ CompilerProto.setupObserver = function () {
             // since hooks were merged with child at head,
             // we loop reversely.
             while (i--) {
-                register(hook, fns[i])
+                registerHook(hook, fns[i])
             }
         } else if (fns) {
-            register(hook, fns)
+            registerHook(hook, fns)
         }
     })
+
+    // broadcast attached/detached hooks
+    observer
+        .on('hook:attached', function () {
+            broadcast(1)
+        })
+        .on('hook:detached', function () {
+            broadcast(0)
+        })
 
     function onGet (key) {
         check(key)
@@ -233,10 +251,25 @@ CompilerProto.setupObserver = function () {
         bindings[key].update(val)
     }
 
-    function register (hook, fn) {
+    function registerHook (hook, fn) {
         observer.on('hook:' + hook, function () {
-            fn.call(compiler.vm, options)
+            fn.call(compiler.vm)
         })
+    }
+
+    function broadcast (event) {
+        var children = compiler.children
+        if (children) {
+            var child, i = children.length
+            while (i--) {
+                child = children[i]
+                if (child.el.parentNode) {
+                    event = 'hook:' + (event ? 'attached' : 'detached')
+                    child.observer.emit(event)
+                    child.emitter.emit(event)
+                }
+            }
+        }
     }
 
     function check (key) {
@@ -260,7 +293,7 @@ CompilerProto.observeData = function (data) {
     $dataBinding.update(data)
 
     // allow $data to be swapped
-    Object.defineProperty(compiler.vm, '$data', {
+    defGetSet(compiler.vm, '$data', {
         enumerable: false,
         get: function () {
             compiler.observer.emit('get', '$data')
@@ -304,7 +337,7 @@ CompilerProto.compile = function (node, root) {
 
         // special attributes to check
         var repeatExp,
-            withKey,
+            withExp,
             partialId,
             directive,
             componentId = utils.attr(node, 'component') || tagName.toLowerCase(),
@@ -332,13 +365,19 @@ CompilerProto.compile = function (node, root) {
             }
 
         // v-with has 2nd highest priority
-        } else if (root !== true && ((withKey = utils.attr(node, 'with')) || componentCtor)) {
+        } else if (root !== true && ((withExp = utils.attr(node, 'with')) || componentCtor)) {
 
-            directive = Directive.parse('with', withKey || '', compiler, node)
-            if (directive) {
-                directive.Ctor = componentCtor
-                compiler.deferred.push(directive)
-            }
+            withExp = Directive.split(withExp || '')
+            withExp.forEach(function (exp, i) {
+                var directive = Directive.parse('with', exp, compiler, node)
+                if (directive) {
+                    directive.Ctor = componentCtor
+                    // notify the directive that this is the
+                    // last expression in the group
+                    directive.last = i === withExp.length - 1
+                    compiler.deferred.push(directive)
+                }
+            })
 
         } else {
 
@@ -361,7 +400,7 @@ CompilerProto.compile = function (node, root) {
             compiler.compileNode(node)
         }
 
-    } else if (nodeType === 3) { // text node
+    } else if (nodeType === 3 && config.interpolate) { // text node
 
         compiler.compileTextNode(node)
 
@@ -400,7 +439,7 @@ CompilerProto.compileNode = function (node) {
                         this.bindDirective(directive)
                     }
                 }
-            } else {
+            } else if (config.interpolate) {
                 // non directive attribute, check interpolation tags
                 exp = TextParser.parseAttr(attr.value)
                 if (exp) {
@@ -495,7 +534,7 @@ CompilerProto.bindDirective = function (directive) {
 
     // for empty or literal directives, simply call its bind()
     // and we're done.
-    if (directive.isEmpty || !directive._update) {
+    if (directive.isEmpty || directive.isLiteral) {
         if (directive.bind) directive.bind()
         return
     }
@@ -514,7 +553,7 @@ CompilerProto.bindDirective = function (directive) {
             if (compiler.hasKey(key)) {
                 break
             } else {
-                compiler = compiler.parentCompiler
+                compiler = compiler.parent
             }
         }
         compiler = compiler || this
@@ -523,13 +562,13 @@ CompilerProto.bindDirective = function (directive) {
     binding.dirs.push(directive)
     directive.binding = binding
 
+    var value = binding.val()
     // invoke bind hook if exists
     if (directive.bind) {
-        directive.bind()
+        directive.bind(value)
     }
-
     // set initial value
-    directive.update(binding.val(), true)
+    directive.update(value, true)
 }
 
 /**
@@ -554,9 +593,11 @@ CompilerProto.createBinding = function (key, isExp, isFn) {
             if (computed && computed[key]) {
                 // computed property
                 compiler.defineComputed(key, binding, computed[key])
-            } else {
+            } else if (key.charAt(0) !== '$') {
                 // normal property
                 compiler.defineProp(key, binding)
+            } else {
+                compiler.defineMeta(key, binding)
             }
         } else {
             // ensure path in data so it can be observed
@@ -591,17 +632,42 @@ CompilerProto.defineProp = function (key, binding) {
     // if the data object is already observed, but the key
     // is not observed, we need to add it to the observed keys.
     if (ob && !(key in ob.values)) {
-        Observer.convert(data, key)
+        Observer.convertKey(data, key)
     }
 
     binding.value = data[key]
 
-    Object.defineProperty(compiler.vm, key, {
+    defGetSet(compiler.vm, key, {
         get: function () {
             return compiler.data[key]
         },
         set: function (val) {
             compiler.data[key] = val
+        }
+    })
+}
+
+/**
+ *  Define a meta property, e.g. $index or $key,
+ *  which is bindable but only accessible on the VM,
+ *  not in the data.
+ */
+CompilerProto.defineMeta = function (key, binding) {
+    var vm = this.vm,
+        ob = this.observer,
+        value = binding.value = vm[key] || this.data[key]
+    // remove initital meta in data, since the same piece
+    // of data can be observed by different VMs, each have
+    // its own associated meta info.
+    delete this.data[key]
+    defGetSet(vm, key, {
+        get: function () {
+            if (Observer.shouldGet) ob.emit('get', key)
+            return value
+        },
+        set: function (val) {
+            ob.emit('set', key, val)
+            value = val
         }
     })
 }
@@ -623,7 +689,7 @@ CompilerProto.defineExp = function (key, binding) {
  */
 CompilerProto.defineComputed = function (key, binding, value) {
     this.markComputed(binding, value)
-    Object.defineProperty(this.vm, key, {
+    defGetSet(this.vm, key, {
         get: binding.value.$get,
         set: binding.value.$set
     })
@@ -658,7 +724,7 @@ CompilerProto.markComputed = function (binding, value) {
  */
 CompilerProto.getOption = function (type, id) {
     var opts = this.options,
-        parent = this.parentCompiler,
+        parent = this.parent,
         globalAssets = config.globalAssets
     return (opts[type] && opts[type][id]) || (
         parent
@@ -744,7 +810,9 @@ CompilerProto.destroy = function () {
         directives  = compiler.dirs,
         exps        = compiler.exps,
         bindings    = compiler.bindings,
-        delegators  = compiler.delegators
+        delegators  = compiler.delegators,
+        children    = compiler.children,
+        parent      = compiler.parent
 
     compiler.execHook('beforeDestroy')
 
@@ -785,13 +853,17 @@ CompilerProto.destroy = function () {
         el.removeEventListener(key, delegators[key].handler)
     }
 
-    // remove self from parentCompiler
-    var parent = compiler.parentCompiler,
-        childId = compiler.childId
+    // destroy all children
+    i = children.length
+    while (i--) {
+        children[i].destroy()
+    }
+
+    // remove self from parent
     if (parent) {
-        parent.childCompilers.splice(parent.childCompilers.indexOf(compiler), 1)
-        if (childId) {
-            delete parent.vm.$[childId]
+        parent.children.splice(parent.children.indexOf(compiler), 1)
+        if (compiler.childId) {
+            delete parent.vm.$[compiler.childId]
         }
     }
 
@@ -801,6 +873,7 @@ CompilerProto.destroy = function () {
     } else {
         vm.$remove()
     }
+    el.vue_vm = null
 
     this.destroyed = true
     // emit destroy hook
@@ -817,10 +890,17 @@ CompilerProto.destroy = function () {
  *  shorthand for getting root compiler
  */
 function getRoot (compiler) {
-    while (compiler.parentCompiler) {
-        compiler = compiler.parentCompiler
+    while (compiler.parent) {
+        compiler = compiler.parent
     }
     return compiler
+}
+
+/**
+ *  for convenience & minification
+ */
+function defGetSet (obj, key, def) {
+    Object.defineProperty(obj, key, def)
 }
 
 module.exports = Compiler

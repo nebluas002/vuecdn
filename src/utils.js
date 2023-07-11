@@ -1,17 +1,11 @@
 var config    = require('./config'),
     attrs     = config.attrs,
     toString  = ({}).toString,
-    join      = [].join,
     win       = window,
     console   = win.console,
-
+    timeout   = win.setTimeout,
     hasClassList = 'classList' in document.documentElement,
     ViewModel // late def
-
-var defer =
-    win.requestAnimationFrame ||
-    win.webkitRequestAnimationFrame ||
-    win.setTimeout
 
 var utils = module.exports = {
 
@@ -26,10 +20,10 @@ var utils = module.exports = {
     /**
      *  get an attribute and remove it.
      */
-    attr: function (el, type, noRemove) {
+    attr: function (el, type) {
         var attr = attrs[type],
             val = el.getAttribute(attr)
-        if (!noRemove && val !== null) el.removeAttribute(attr)
+        if (val !== null) el.removeAttribute(attr)
         return val
     },
 
@@ -38,12 +32,12 @@ var utils = module.exports = {
      *  This avoids it being included in JSON.stringify
      *  or for...in loops.
      */
-    defProtected: function (obj, key, val, enumerable, configurable) {
+    defProtected: function (obj, key, val, enumerable) {
         if (obj.hasOwnProperty(key)) return
         Object.defineProperty(obj, key, {
             value        : val,
             enumerable   : !!enumerable,
-            configurable : !!configurable
+            configurable : true
         })
     },
 
@@ -172,9 +166,9 @@ var utils = module.exports = {
     /**
      *  log for debugging
      */
-    log: function () {
+    log: function (msg) {
         if (config.debug && console) {
-            console.log(join.call(arguments, ' '))
+            console.log(msg)
         }
     },
     
@@ -182,11 +176,11 @@ var utils = module.exports = {
      *  warnings, traces by default
      *  can be suppressed by `silent` option.
      */
-    warn: function() {
+    warn: function (msg) {
         if (!config.silent && console) {
-            console.warn(join.call(arguments, ' '))
-            if (config.debug) {
-                console.trace()
+            console.warn(msg)
+            if (config.debug && console.trace) {
+                console.trace(msg)
             }
         }
     },
@@ -195,7 +189,7 @@ var utils = module.exports = {
      *  used to defer batch updates
      */
     nextTick: function (cb) {
-        defer(cb, 0)
+        timeout(cb, 0)
     },
 
     /**
