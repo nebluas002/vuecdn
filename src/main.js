@@ -2,13 +2,18 @@ var config      = require('./config'),
     ViewModel   = require('./viewmodel'),
     utils       = require('./utils'),
     makeHash    = utils.hash,
-    assetTypes  = ['directive', 'filter', 'partial', 'transition', 'component']
+    assetTypes  = ['directive', 'filter', 'partial', 'effect', 'component']
+
+// require these so Browserify can catch them
+// so they can be used in Vue.require
+require('./observer')
+require('./transition')
 
 ViewModel.options = config.globalAssets = {
     directives  : require('./directives'),
     filters     : require('./filters'),
     partials    : makeHash(),
-    transitions : makeHash(),
+    effects     : makeHash(),
     components  : makeHash()
 }
 
@@ -49,13 +54,6 @@ ViewModel.config = function (opts, val) {
 }
 
 /**
- *  Expose internal modules for plugins
- */
-ViewModel.require = function (path) {
-    return require('./' + path)
-}
-
-/**
  *  Expose an interface for plugins
  */
 ViewModel.use = function (plugin) {
@@ -69,13 +67,21 @@ ViewModel.use = function (plugin) {
 
     // additional parameters
     var args = [].slice.call(arguments, 1)
-    args.unshift(ViewModel)
+    args.unshift(this)
 
     if (typeof plugin.install === 'function') {
         plugin.install.apply(plugin, args)
     } else {
         plugin.apply(null, args)
     }
+    return this
+}
+
+/**
+ *  Expose internal modules for plugins
+ */
+ViewModel.require = function (path) {
+    return require('./' + path)
 }
 
 ViewModel.extend = extend
@@ -118,14 +124,18 @@ function extend (options) {
     }
 
     // allow extended VM to be further extended
-    ExtendedVM.extend = extend
-    ExtendedVM.super = ParentVM
+    ExtendedVM.extend  = extend
+    ExtendedVM.super   = ParentVM
     ExtendedVM.options = options
 
     // allow extended VM to add its own assets
     assetTypes.forEach(function (type) {
         ExtendedVM[type] = ViewModel[type]
     })
+
+    // allow extended VM to use plugins
+    ExtendedVM.use     = ViewModel.use
+    ExtendedVM.require = ViewModel.require
 
     return ExtendedVM
 }
@@ -144,13 +154,14 @@ function extend (options) {
  *  extension option, but only as an instance option.
  */
 function inheritOptions (child, parent, topLevel) {
-    child = child || makeHash()
+    child = child || {}
     if (!parent) return child
     for (var key in parent) {
         if (key === 'el' || key === 'methods') continue
         var val = child[key],
             parentVal = parent[key],
-            type = utils.typeOf(val)
+            type = utils.typeOf(val),
+            parentType = utils.typeOf(parentVal)
         if (topLevel && type === 'Function' && parentVal) {
             // merge hook functions into an array
             child[key] = [val]
@@ -159,9 +170,9 @@ function inheritOptions (child, parent, topLevel) {
             } else {
                 child[key].push(parentVal)
             }
-        } else if (topLevel && type === 'Object') {
+        } else if (topLevel && (type === 'Object' || parentType === 'Object')) {
             // merge toplevel object options
-            inheritOptions(val, parentVal)
+            child[key] = inheritOptions(val, parentVal)
         } else if (val === undefined) {
             // inherit if child doesn't override
             child[key] = parentVal

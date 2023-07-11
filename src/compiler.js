@@ -57,6 +57,8 @@ function Compiler (vm, options) {
     compiler.computed = []
     compiler.childCompilers = []
     compiler.emitter = new Emitter()
+    compiler.emitter._ctx = vm
+    compiler.delegators = makeHash()
 
     // set inenumerable VM properties
     def(vm, '$', makeHash())
@@ -86,6 +88,14 @@ function Compiler (vm, options) {
         for (var key in computed) {
             compiler.createBinding(key)
         }
+    }
+
+    // copy paramAttributes
+    if (options.paramAttributes) {
+        options.paramAttributes.forEach(function (attr) {
+            var val = el.getAttribute(attr)
+            vm[attr] = isNaN(val) ? val : Number(val)
+        })
     }
 
     // beforeCompile hook
@@ -187,6 +197,7 @@ CompilerProto.setupObserver = function () {
     // a hash to hold event proxies for each root level key
     // so they can be referenced and removed later
     observer.proxies = makeHash()
+    observer._ctx = compiler.vm
 
     // add own listeners which trigger binding updates
     observer
@@ -329,8 +340,10 @@ CompilerProto.compile = function (node, root) {
 
         } else {
 
-            // check transition property
-            node.vue_trans = utils.attr(node, 'transition')
+            // check transition & animation properties
+            node.vue_trans  = utils.attr(node, 'transition')
+            node.vue_anim   = utils.attr(node, 'animation')
+            node.vue_effect = utils.attr(node, 'effect')
             
             // replace innerHTML with partial
             partialId = utils.attr(node, 'partial')
@@ -679,6 +692,41 @@ CompilerProto.parseDeps = function () {
 }
 
 /**
+ *  Add an event delegation listener
+ *  listeners are instances of directives with `isFn:true`
+ */
+CompilerProto.addListener = function (listener) {
+    var event = listener.arg,
+        delegator = this.delegators[event]
+    if (!delegator) {
+        // initialize a delegator
+        delegator = this.delegators[event] = {
+            targets: [],
+            handler: function (e) {
+                var i = delegator.targets.length,
+                    target
+                while (i--) {
+                    target = delegator.targets[i]
+                    if (e.target === target.el && target.handler) {
+                        target.handler(e)
+                    }
+                }
+            }
+        }
+        this.el.addEventListener(event, delegator.handler)
+    }
+    delegator.targets.push(listener)
+}
+
+/**
+ *  Remove an event delegation listener
+ */
+CompilerProto.removeListener = function (listener) {
+    var targets = this.delegators[listener.arg].targets
+    targets.splice(targets.indexOf(listener), 1)
+}
+
+/**
  *  Unbind and remove element
  */
 CompilerProto.destroy = function () {
@@ -693,7 +741,8 @@ CompilerProto.destroy = function () {
         el          = compiler.el,
         directives  = compiler.dirs,
         exps        = compiler.exps,
-        bindings    = compiler.bindings
+        bindings    = compiler.bindings,
+        delegators  = compiler.delegators
 
     compiler.execHook('beforeDestroy')
 
@@ -727,6 +776,11 @@ CompilerProto.destroy = function () {
         if (binding) {
             binding.unbind()
         }
+    }
+
+    // remove all event delegators
+    for (key in delegators) {
+        el.removeEventListener(key, delegators[key].handler)
     }
 
     // remove self from parentCompiler

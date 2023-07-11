@@ -1,5 +1,11 @@
-var endEvent   = sniffTransitionEndEvent(),
+var endEvents  = sniffEndEvents(),
     config     = require('./config'),
+    // batch enter animations so we only force the layout once
+    Batcher    = require('./batcher'),
+    batcher    = new Batcher(),
+    // cache timer functions
+    setTO      = window.setTimeout,
+    clearTO    = window.clearTimeout,
     // exit codes for testing
     codes = {
         CSS_E     : 1,
@@ -31,21 +37,24 @@ var transition = module.exports = function (el, stage, cb, compiler) {
         return codes.INIT
     }
 
-    var transitionId = el.vue_trans
+    var hasTransition = el.vue_trans === '',
+        hasAnimation  = el.vue_anim === '',
+        effectId      = el.vue_effect
 
-    if (transitionId) {
+    if (effectId) {
         return applyTransitionFunctions(
             el,
             stage,
             changeState,
-            transitionId,
+            effectId,
             compiler
         )
-    } else if (transitionId === '') {
+    } else if (hasTransition || hasAnimation) {
         return applyTransitionClass(
             el,
             stage,
-            changeState
+            changeState,
+            hasAnimation
         )
     } else {
         changeState()
@@ -59,49 +68,68 @@ transition.codes = codes
 /**
  *  Togggle a CSS class to trigger transition
  */
-function applyTransitionClass (el, stage, changeState) {
+function applyTransitionClass (el, stage, changeState, hasAnimation) {
 
-    if (!endEvent) {
+    if (!endEvents.trans) {
         changeState()
         return codes.CSS_SKIP
     }
 
     // if the browser supports transition,
     // it must have classList...
-    var classList         = el.classList,
-        lastLeaveCallback = el.vue_trans_cb
+    var onEnd,
+        classList        = el.classList,
+        existingCallback = el.vue_trans_cb,
+        enterClass       = config.enterClass,
+        leaveClass       = config.leaveClass,
+        endEvent         = hasAnimation ? endEvents.anim : endEvents.trans
+
+    // cancel unfinished callbacks and jobs
+    if (existingCallback) {
+        el.removeEventListener(endEvent, existingCallback)
+        classList.remove(enterClass)
+        classList.remove(leaveClass)
+        el.vue_trans_cb = null
+    }
 
     if (stage > 0) { // enter
 
-        // cancel unfinished leave transition
-        if (lastLeaveCallback) {
-            el.removeEventListener(endEvent, lastLeaveCallback)
-            el.vue_trans_cb = null
-        }
-
-        // set to hidden state before appending
-        classList.add(config.enterClass)
+        // set to enter state before appending
+        classList.add(enterClass)
         // append
         changeState()
-        // force a layout so transition can be triggered
-        /* jshint unused: false */
-        var forceLayout = el.clientHeight
         // trigger transition
-        classList.remove(config.enterClass)
+        if (!hasAnimation) {
+            batcher.push({
+                execute: function () {
+                    classList.remove(enterClass)
+                }
+            })
+        } else {
+            onEnd = function (e) {
+                if (e.target === el) {
+                    el.removeEventListener(endEvent, onEnd)
+                    el.vue_trans_cb = null
+                    classList.remove(enterClass)
+                }
+            }
+            el.addEventListener(endEvent, onEnd)
+            el.vue_trans_cb = onEnd
+        }
         return codes.CSS_E
 
     } else { // leave
 
         if (el.offsetWidth || el.offsetHeight) {
             // trigger hide transition
-            classList.add(config.leaveClass)
-            var onEnd = function (e) {
+            classList.add(leaveClass)
+            onEnd = function (e) {
                 if (e.target === el) {
                     el.removeEventListener(endEvent, onEnd)
                     el.vue_trans_cb = null
                     // actually remove node here
                     changeState()
-                    classList.remove(config.leaveClass)
+                    classList.remove(leaveClass)
                 }
             }
             // attach transition end listener
@@ -117,30 +145,51 @@ function applyTransitionClass (el, stage, changeState) {
 
 }
 
-function applyTransitionFunctions (el, stage, changeState, functionId, compiler) {
+function applyTransitionFunctions (el, stage, changeState, effectId, compiler) {
 
-    var funcs = compiler.getOption('transitions', functionId)
+    var funcs = compiler.getOption('effects', effectId)
     if (!funcs) {
         changeState()
         return codes.JS_SKIP
     }
 
     var enter = funcs.enter,
-        leave = funcs.leave
+        leave = funcs.leave,
+        timeouts = el.vue_timeouts
+
+    // clear previous timeouts
+    if (timeouts) {
+        var i = timeouts.length
+        while (i--) {
+            clearTO(timeouts[i])
+        }
+    }
+
+    timeouts = el.vue_timeouts = []
+    function timeout (cb, delay) {
+        var id = setTO(function () {
+            cb()
+            timeouts.splice(timeouts.indexOf(id), 1)
+            if (!timeouts.length) {
+                el.vue_timeouts = null
+            }
+        }, delay)
+        timeouts.push(id)
+    }
 
     if (stage > 0) { // enter
         if (typeof enter !== 'function') {
             changeState()
             return codes.JS_SKIP_E
         }
-        enter(el, changeState)
+        enter(el, changeState, timeout)
         return codes.JS_E
     } else { // leave
         if (typeof leave !== 'function') {
             changeState()
             return codes.JS_SKIP_L
         }
-        leave(el, changeState)
+        leave(el, changeState, timeout)
         return codes.JS_L
     }
 
@@ -149,17 +198,23 @@ function applyTransitionFunctions (el, stage, changeState, functionId, compiler)
 /**
  *  Sniff proper transition end event name
  */
-function sniffTransitionEndEvent () {
+function sniffEndEvents () {
     var el = document.createElement('vue'),
         defaultEvent = 'transitionend',
         events = {
             'transition'       : defaultEvent,
             'mozTransition'    : defaultEvent,
             'webkitTransition' : 'webkitTransitionEnd'
-        }
+        },
+        ret = {}
     for (var name in events) {
         if (el.style[name] !== undefined) {
-            return events[name]
+            ret.trans = events[name]
+            break
         }
     }
+    ret.anim = el.style.animation === ''
+        ? 'animationend'
+        : 'webkitAnimationEnd'
+    return ret
 }
