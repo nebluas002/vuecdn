@@ -25,7 +25,6 @@ module.exports = {
         ctn.insertBefore(this.ref, el)
         ctn.removeChild(el)
 
-        this.initiated = false
         this.collection = null
         this.vms = null
 
@@ -39,13 +38,6 @@ module.exports = {
             } else {
                 utils.warn('v-repeat only accepts Array or Object values.')
             }
-        }
-
-        // if initiating with an empty collection, we need to
-        // force a compile so that we get all the bindings for
-        // dependency extraction.
-        if (!this.initiated && (!collection || !collection.length)) {
-            this.dryBuild()
         }
 
         // keep reference of old data and VMs
@@ -63,24 +55,6 @@ module.exports = {
             this.vm.$[this.childId] = this.vms
         }
 
-    },
-
-    /**
-     *  Run a dry build just to collect bindings
-     */
-    dryBuild: function () {
-        var el = this.el.cloneNode(true),
-            Ctor = this.compiler.resolveComponent(el)
-        new Ctor({
-            el     : el,
-            parent : this.vm,
-            data   : { $index: 0 },
-            compilerOptions: {
-                repeat: true,
-                expCache: this.expCache
-            }
-        }).$destroy()
-        this.initiated = true
     },
 
     init: function (collection, isObject) {
@@ -143,7 +117,9 @@ module.exports = {
         // second pass, collect old reused and destroy unused
         for (i = 0, l = oldVMs.length; i < l; i++) {
             vm = oldVMs[i]
-            item = vm.$data
+            item = this.arg
+                ? vm.$data[this.arg]
+                : vm.$data
             if (item.$reused) {
                 vm.$reused = true
                 delete item.$reused
@@ -158,7 +134,9 @@ module.exports = {
                 vms[vm.$index] = vm
             } else {
                 // this one can be destroyed.
-                delete item.__emitter__[this.identifier]
+                if (item.__emitter__) {
+                    delete item.__emitter__[this.identifier]
+                }
                 vm.$destroy()
             }
         }
@@ -229,8 +207,10 @@ module.exports = {
                 }
             })
 
-        // attach an ienumerable identifier
-        data.__emitter__[this.identifier] = true
+        if (isObject) {
+            // attach an ienumerable identifier to the raw data
+            (raw || data).__emitter__[this.identifier] = true
+        }
 
         if (wrap) {
             var self = this,
