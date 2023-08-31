@@ -465,11 +465,11 @@ CompilerProto.checkPriorityDir = function (dirname, node, root) {
         root !== true &&
         (Ctor = this.resolveComponent(node, undefined, true))
     ) {
-        directive = Directive.build(dirname, '', this, node)
+        directive = this.parseDirective(dirname, '', node)
         directive.Ctor = Ctor
     } else {
         expression = utils.attr(node, dirname)
-        directive = expression && Directive.build(dirname, expression, this, node)
+        directive = expression && this.parseDirective(dirname, expression, node)
     }
     if (directive) {
         if (root === true) {
@@ -506,10 +506,12 @@ CompilerProto.compileElement = function (node, root) {
             return
         }
 
+        var i, l, j, k
+
         // check priority directives.
         // if any of them are present, it will take over the node with a childVM
         // so we can skip the rest
-        for (var i = 0, l = priorityDirectives.length; i < l; i++) {
+        for (i = 0, l = priorityDirectives.length; i < l; i++) {
             if (this.checkPriorityDir(priorityDirectives[i], node, root)) {
                 return
             }
@@ -523,10 +525,9 @@ CompilerProto.compileElement = function (node, root) {
         var prefix = config.prefix + '-',
             attrs = slice.call(node.attributes),
             params = this.options.paramAttributes,
-            attr, isDirective, exps, exp, directive, dirname
+            attr, isDirective, exp, directives, directive, dirname
 
-        i = attrs.length
-        while (i--) {
+        for (i = 0, l = attrs.length; i < l; i++) {
 
             attr = attrs[i]
             isDirective = false
@@ -534,27 +535,24 @@ CompilerProto.compileElement = function (node, root) {
             if (attr.name.indexOf(prefix) === 0) {
                 // a directive - split, parse and bind it.
                 isDirective = true
-                exps = Directive.split(attr.value)
+                dirname = attr.name.slice(prefix.length)
+                // build with multiple: true
+                directives = this.parseDirective(dirname, attr.value, node, true)
                 // loop through clauses (separated by ",")
                 // inside each attribute
-                l = exps.length
-                while (l--) {
-                    exp = exps[l]
-                    dirname = attr.name.slice(prefix.length)
-                    directive = Directive.build(dirname, exp, this, node)
-
+                for (j = 0, k = directives.length; j < k; j++) {
+                    directive = directives[j]
                     if (dirname === 'with') {
                         this.bindDirective(directive, this.parent)
                     } else {
                         this.bindDirective(directive)
                     }
-                    
                 }
             } else if (config.interpolate) {
                 // non directive attribute, check interpolation tags
                 exp = TextParser.parseAttr(attr.value)
                 if (exp) {
-                    directive = Directive.build('attr', attr.name + ':' + exp, this, node)
+                    directive = this.parseDirective('attr', attr.name + ':' + exp, node)
                     if (params && params.indexOf(attr.name) > -1) {
                         // a param attribute... we should use the parent binding
                         // to avoid circular updates like size={{size}}
@@ -595,14 +593,14 @@ CompilerProto.compileTextNode = function (node) {
         if (token.key) { // a binding
             if (token.key.charAt(0) === '>') { // a partial
                 el = document.createComment('ref')
-                directive = Directive.build('partial', token.key.slice(1), this, el)
+                directive = this.parseDirective('partial', token.key.slice(1), el)
             } else {
                 if (!token.html) { // text binding
                     el = document.createTextNode('')
-                    directive = Directive.build('text', token.key, this, el)
+                    directive = this.parseDirective('text', token.key, el)
                 } else { // html binding
                     el = document.createComment(config.prefix + '-html')
-                    directive = Directive.build('html', token.key, this, el)
+                    directive = this.parseDirective('html', token.key, el)
                 }
             }
         } else { // a plain string
@@ -616,6 +614,25 @@ CompilerProto.compileTextNode = function (node) {
 
     }
     node.parentNode.removeChild(node)
+}
+
+/**
+ *  Parse a directive name/value pair into one or more
+ *  directive instances
+ */
+CompilerProto.parseDirective = function (name, value, el, multiple) {
+    var compiler = this,
+        definition = compiler.getOption('directives', name)
+    if (definition) {
+        // parse into AST-like objects
+        var asts = Directive.parse(value)
+        return multiple
+            ? asts.map(build)
+            : build(asts[0])
+    }
+    function build (ast) {
+        return new Directive(name, ast, definition, compiler, el)
+    }
 }
 
 /**
@@ -909,7 +926,7 @@ CompilerProto.destroy = function () {
     if (this.destroyed) return
 
     var compiler = this,
-        i, key, dir, dirs, binding,
+        i, j, key, dir, dirs, binding,
         vm          = compiler.vm,
         el          = compiler.el,
         directives  = compiler.dirs,
@@ -933,7 +950,10 @@ CompilerProto.destroy = function () {
         // * empty and literal bindings do not have binding.
         if (dir.binding && dir.binding.compiler !== compiler) {
             dirs = dir.binding.dirs
-            if (dirs) dirs.splice(dirs.indexOf(dir), 1)
+            if (dirs) {
+                j = dirs.indexOf(dir)
+                if (j > -1) dirs.splice(j, 1)
+            }
         }
         dir.unbind()
     }
@@ -960,7 +980,8 @@ CompilerProto.destroy = function () {
 
     // remove self from parent
     if (parent) {
-        parent.children.splice(parent.children.indexOf(compiler), 1)
+        j = parent.children.indexOf(compiler)
+        if (j > -1) parent.children.splice(j, 1)
     }
 
     // finally remove dom element
