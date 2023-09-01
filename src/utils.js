@@ -2,14 +2,23 @@ var config    = require('./config'),
     toString  = ({}).toString,
     win       = window,
     console   = win.console,
-    timeout   = win.setTimeout,
     def       = Object.defineProperty,
-    THIS_RE   = /[^\w]this[^\w]/,
     OBJECT    = 'object',
+    THIS_RE   = /[^\w]this[^\w]/,
     hasClassList = 'classList' in document.documentElement,
     ViewModel // late def
 
+var defer =
+    win.requestAnimationFrame ||
+    win.webkitRequestAnimationFrame ||
+    win.setTimeout
+
 var utils = module.exports = {
+
+    /**
+     *  Convert a string template to a dom fragment
+     */
+    toFragment: require('./fragment'),
 
     /**
      *  get a value from an object keypath
@@ -165,36 +174,6 @@ var utils = module.exports = {
     },
 
     /**
-     *  Convert a string template to a dom fragment
-     */
-    toFragment: function (template) {
-        if (typeof template !== 'string') {
-            return template
-        }
-        if (template.charAt(0) === '#') {
-            var templateNode = document.getElementById(template.slice(1))
-            if (!templateNode) return
-            // if its a template tag and the browser supports it,
-            // its content is already a document fragment!
-            if (templateNode.tagName === 'TEMPLATE' && templateNode.content) {
-                return templateNode.content
-            }
-            template = templateNode.innerHTML
-        }
-        var node = document.createElement('div'),
-            frag = document.createDocumentFragment(),
-            child
-        node.innerHTML = template.trim()
-        /* jshint boss: true */
-        while (child = node.firstChild) {
-            if (node.nodeType === 1) {
-                frag.appendChild(child)
-            }
-        }
-        return frag
-    },
-
-    /**
      *  Convert the object to a ViewModel constructor
      *  if it is not already one
      */
@@ -250,7 +229,7 @@ var utils = module.exports = {
      *  used to defer batch updates
      */
     nextTick: function (cb) {
-        timeout(cb, 0)
+        defer(cb, 0)
     },
 
     /**
