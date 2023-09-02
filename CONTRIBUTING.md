@@ -26,16 +26,20 @@ Hi! I’m really excited that you are interested in contributing to Vue.js. Befo
 ## Code Style
 
 - [No semicolons unless necessary](http://inimino.org/~inimino/blog/javascript_semicolons).
-- 4 spaces indentation.
-- Single var definition, align equal signs where possible.
-- Return early in one line if possible.
+- Follow JSDoc.
+- 2 spaces indentation.
+- multiple var declarations.
+- align equal signs where appropriate.
+- Return early.
+- 1 space after `function`
+- 1 space between arguments, but not between parens.
 - When in doubt, read the source code.
-- Break long ternary conditionals:
+- Break long ternary conditionals like this:
 
 ``` js
 var a = superLongConditionalStatement
-    ? 'yep'
-    : 'nope'
+  ? 'yep'
+  : 'nope'
 ```
 
 ## Development Setup
@@ -43,8 +47,8 @@ var a = superLongConditionalStatement
 You will need [Node](http://nodejs.org), [Grunt](http://gruntjs.com), [PhantomJS](http://phantomjs.org) and [CasperJS](http://casperjs.org).
 
 ``` bash
-# in case you don’t already it:
-# npm install -g grunt-cli
+# in case you don’t already these:
+# npm install -g grunt-cli phantomjs casperjs
 $ npm install
 ```
 
@@ -74,7 +78,7 @@ To test:
 $ grunt test
 ```
 
-The unit tests are written with Mocha + Chai and run with Karma. The functional tests are written and run with CasperJS.
+The unit tests are written with Jasmine and run with Karma. The functional tests are written for and run with CasperJS.
 
 **If you are not using a Mac**
 

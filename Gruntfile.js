@@ -1,184 +1,120 @@
-module.exports = function( grunt ) {
+var sauceConfig = require('./grunt/sauce')
 
-    grunt.initConfig({
+module.exports = function (grunt) {
 
-        version: grunt.file.readJSON('package.json').version,
+  var version = grunt.file.readJSON('package.json').version
+  var banner =
+    '/**\n' +
+    ' * Vue.js v' + version + '\n' +
+    ' * (c) ' + new Date().getFullYear() + ' Evan You\n' +
+    ' * Released under the MIT License.\n' +
+    ' */\n'
 
-        jshint: {
-            options: {
-                reporter: require('jshint-stylish'),
-                jshintrc: true
-            },
-            build: {
-                src: ['Gruntfile.js', 'tasks/*.js']
-            },
-            src: {
-                src: 'src/**/*.js'
-            },
-            test: {
-                src: 'test/*/specs/*.js'
-            }
+  grunt.initConfig({
+
+    banner: banner,
+
+    jshint: {
+      options: {
+        reporter: require('jshint-stylish'),
+        jshintrc: true
+      },
+      build: {
+        src: ['gruntfile.js', 'tasks/*.js']
+      },
+      src: {
+        src: 'src/**/*.js'
+      },
+      test: {
+        src: ['test/unit/specs/**/*.js', 'test/e2e/*.js']
+      }
+    },
+
+    watch: {
+      options: {
+        nospawn: true
+      },
+      dev: {
+        files: ['src/**/*.js'],
+        tasks: ['dev']
+      },
+      test: {
+        files: ['test/unit/specs/**/*.js'],
+        tasks: ['build-test']
+      }
+    },
+
+    karma: {
+      options: {
+        frameworks: ['jasmine', 'commonjs'],
+        files: [
+          'src/**/*.js',
+          'test/unit/specs/**/*.js'
+        ],
+        preprocessors: {
+          'src/**/*.js': ['commonjs'],
+          'test/unit/specs/**/*.js': ['commonjs']
         },
-
-        connect: {
-            test: {
-                options: {
-                    base: '',
-                    port: 9999
-                }
-            }
-        },
-
-        watch: {
-            options: {
-                nospawn: true
-            },
-            dev: {
-                files: ['src/**/*.js', './component.json'],
-                tasks: ['dev', 'instrument']
-            }
-        },
-
-        coveralls: {
-            options: {
-                coverage_dir: 'coverage/'
-            }
-        },
-
-        karma: {
-            options: {
-                frameworks: ['mocha'],
-                files: [
-                    'test/vue.test.js',
-                    'test/unit/utils/chai.js',
-                    'test/unit/utils/prepare.js',
-                    'test/unit/specs/*.js'
-                ],
-                singleRun: true
-            },
-            browsers: {
-                options: {
-                   browsers: ['Chrome', 'Firefox', 'Safari'],
-                   reporters: ['progress']
-                }
-            },
-            phantom: {
-                options: {
-                    browsers: ['PhantomJS'],
-                    reporters: ['progress', 'coverage'],
-                    preprocessors: {
-                        'test/vue.test.js': ['coverage']
-                    },
-                    coverageReporter: {
-                        reporters: [
-                            { type: 'lcov' },
-                            { type: 'text-summary' }
-                        ]
-                    }
-                }
-            }
-        },
-
-        'saucelabs-mocha': {
-            test: {
-                options: {
-                    urls: ['http://127.0.0.1:9999/test/unit/runner.html'],
-                    build: process.env.TRAVIS_JOB_ID || Date.now(),
-                    testname: "unit tests",
-                    concurrency: 3,
-                    browsers: [
-                        {
-                            browserName: "chrome",
-                            version: "31",
-                            platform: "Windows 7"
-                        },
-                        {
-                            browserName: "firefox",
-                            version: "26",
-                            platform: "Windows 7"
-                        },
-                        {
-                            browserName: "internet explorer",
-                            platform: "Windows 7",
-                            version: "9"
-                        },
-                        {
-                            browserName: "internet explorer",
-                            platform: "Windows 8",
-                            version: "10"
-                        },
-                        {
-                            browserName: "internet explorer",
-                            platform: "Windows 8.1",
-                            version: "11"
-                        },
-                        {
-                            browserName: "safari",
-                            platform: "OS X 10.8",
-                            version: "6"
-                        },
-                        {
-                            browserName: "safari",
-                            platform: "OS X 10.9",
-                            version: "7"
-                        },
-                        {
-                            browserName: "iphone",
-                            platform: "OS X 10.8",
-                            version: "6.0"
-                        },
-                        {
-                            browserName: "iphone",
-                            platform: "OS X 10.9",
-                            version: "7"
-                        }
-                    ]
-                }
-            }
+        singleRun: true
+      },
+      browsers: {
+        options: {
+          browsers: ['Chrome', 'Firefox'],
+          reporters: ['progress']
         }
+      },
+      coverage: {
+        options: {
+          browsers: ['PhantomJS'],
+          reporters: ['progress', 'coverage'],
+          preprocessors: {
+            'src/**/*.js': ['commonjs', 'coverage'],
+            'test/unit/specs/**/*.js': ['commonjs']
+          },
+          coverageReporter: {
+            reporters: [
+              { type: 'lcov' },
+              { type: 'text-summary' }
+            ]
+          }
+        }
+      },
+      sauce1: {
+        options: sauceConfig.batch1
+      },
+      sauce2: {
+        options: sauceConfig.batch2
+      },
+      sauce3: {
+        options: sauceConfig.batch3
+      }
+    },
 
-    })
+    coveralls: {
+      options: {
+        coverage_dir: 'coverage/',
+        force: true
+      }
+    }
 
-    grunt.loadNpmTasks('grunt-karma')
-    grunt.loadNpmTasks('grunt-karma-coveralls')
-    grunt.loadNpmTasks('grunt-saucelabs')
-    grunt.loadNpmTasks('grunt-contrib-watch')
-    grunt.loadNpmTasks('grunt-contrib-jshint')
-    grunt.loadNpmTasks('grunt-contrib-connect')
+  })
+  
+  // load npm tasks
+  grunt.loadNpmTasks('grunt-contrib-jshint')
+  grunt.loadNpmTasks('grunt-contrib-watch')
+  grunt.loadNpmTasks('grunt-karma')
+  grunt.loadNpmTasks('grunt-karma-coveralls')
 
-    // load custom tasks
-    grunt.file.recurse('tasks', function (path) {
-        require('./' + path)(grunt)
-    })
+  // load custom tasks
+  grunt.file.recurse('grunt/tasks', function (path) {
+    require('./' + path)(grunt)
+  })
 
-    grunt.registerTask( 'unit', [
-        'instrument',
-        'karma:browsers'
-    ])
+  grunt.registerTask('unit', ['karma:browsers'])
+  grunt.registerTask('cover', ['karma:coverage'])
+  grunt.registerTask('test', ['unit', 'cover', 'casper'])
+  grunt.registerTask('sauce', ['karma:sauce1', 'karma:sauce2', 'karma:sauce3'])
+  grunt.registerTask('ci', ['jshint', 'test', 'coveralls', 'sauce'])
+  grunt.registerTask('default', ['jshint', 'test', 'build'])
 
-    grunt.registerTask( 'test', [
-        'unit',
-        'casper'
-    ])
-
-    grunt.registerTask( 'sauce', [
-        'connect',
-        'saucelabs-mocha'
-    ])
-
-    grunt.registerTask( 'travis', [
-        'build',
-        'instrument',
-        'karma:phantom',
-        'coveralls',
-        'casper',
-        'sauce'
-    ])
-
-    grunt.registerTask( 'default', [
-        'jshint',
-        'build',
-        'test'
-    ])
-    
 }

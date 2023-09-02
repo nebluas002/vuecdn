@@ -1,9 +1,7 @@
-.DS_Store
-.sass-cache
-node_modules
-components
-explorations
-test/vue.test.js
 dist/vue.min.js.gz
+test/unit/specs.js
+explorations
+node_modules
+.DS_Store
+benchmarks/browser.js
 coverage
-sauce_connect.log*
