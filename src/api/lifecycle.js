@@ -1,4 +1,5 @@
 var _ = require('../util')
+var compile = require('../compile/compile')
 
 /**
  * Set instance target element and kick off the compilation
@@ -73,7 +74,7 @@ exports.$destroy = function (remove) {
   var parent = this.$parent
   if (parent && !parent._isBeingDestroyed) {
     i = parent._children.indexOf(this)
-    parent._children.splice(i)
+    parent._children.splice(i, 1)
   }
   // destroy all children.
   if (this._children) {
@@ -113,4 +114,16 @@ exports.$destroy = function (remove) {
   this._callHook('destroyed')
   // turn off all instance listeners.
   this.$off()
+}
+
+/**
+ * Partially compile a piece of DOM and return a
+ * decompile function.
+ *
+ * @param {Element|DocumentFragment} el
+ * @return {Function}
+ */
+
+exports.$compile = function (el) {
+  return compile(el, this.$options, true)(this, el)
 }

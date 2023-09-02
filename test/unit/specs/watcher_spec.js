@@ -2,6 +2,7 @@ var Vue = require('../../../src/vue')
 var nextTick = Vue.nextTick
 var Watcher = require('../../../src/watcher')
 var _ = Vue.util
+var config = Vue.config
 
 describe('Watcher', function () {
 
@@ -20,6 +21,7 @@ describe('Watcher', function () {
       }
     })
     spy = jasmine.createSpy('watcher')
+    spyOn(_, 'warn')
   })
   
   it('simple path', function (done) {
@@ -344,6 +346,17 @@ describe('Watcher', function () {
       expect(spy).not.toHaveBeenCalled()
       done()
     })
+  })
+
+  it('synchronous updates', function () {
+    config.async = false
+    var watcher = new Watcher(vm, 'a', spy)
+    vm.a = 2
+    vm.a = 3
+    expect(spy.calls.count()).toBe(2)
+    expect(spy).toHaveBeenCalledWith(2, 1)
+    expect(spy).toHaveBeenCalledWith(3, 2)
+    config.async = true
   })
 
 })

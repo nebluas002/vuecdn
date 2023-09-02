@@ -4,8 +4,6 @@ var textParser = require('../parse/text')
 var dirParser = require('../parse/directive')
 var templateParser = require('../parse/template')
 
-function noop () {}
-
 /**
  * Compile a template and return a reusable composite link
  * function, which recursively contains more link functions
@@ -31,10 +29,41 @@ module.exports = function compile (el, options, partial) {
     el.hasChildNodes()
       ? compileNodeList(el.childNodes, options)
       : null
+
+  /**
+   * A linker function to be called on a already compiled
+   * piece of DOM, which instantiates all directive
+   * instances.
+   *
+   * @param {Vue} vm
+   * @param {Element|DocumentFragment} el
+   * @return {Function|undefined}
+   */
+
   return function link (vm, el) {
+    var originalDirCount = vm._directives.length
     if (paramsLinkFn) paramsLinkFn(vm, el)
     if (nodeLinkFn) nodeLinkFn(vm, el)
     if (childLinkFn) childLinkFn(vm, el.childNodes)
+
+    /**
+     * If this is a partial compile, the linker function
+     * returns an unlink function that tearsdown all
+     * directives instances generated during the partial
+     * linking.
+     */
+
+    if (partial) {
+      var dirs = vm._directives.slice(originalDirCount)
+      return function unlink () {
+        var i = dirs.length
+        while (i--) {
+          dirs[i]._teardown()
+        }
+        i = vm._directives.indexOf(dirs[0])
+        vm._directives.splice(i, dirs.length)
+      }
+    }
   }
 }
 
@@ -111,15 +140,15 @@ function makeDirectivesLinkFn (directives) {
   return function directivesLinkFn (vm, el) {
     // reverse apply because it's sorted low to high
     var i = directives.length
-    var dir, j
+    var dir, j, k
     while (i--) {
       dir = directives[i]
       if (dir._link) {
         // custom link fn
         dir._link(vm, el)
       } else {
-        j = dir.descriptors.length
-        while (j--) {
+        k = dir.descriptors.length
+        for (j = 0; j < k; j++) {
           vm._bindDir(dir.name, el,
                       dir.descriptors[j], dir.def)
         }
@@ -352,13 +381,16 @@ function makeParamsLinkFn (params, options) {
 
 var terminalDirectives = [
   'repeat',
-  'component',
-  'if'
+  'if',
+  'component'
 ]
+
+function skip () {}
+skip.terminal = true
 
 function checkTerminalDirectives (el, options) {
   if (_.attr(el, 'pre') !== null) {
-    return noop
+    return skip
   }
   var value, dirName
   /* jshint boss: true */
@@ -383,6 +415,16 @@ function checkTerminalDirectives (el, options) {
 function makeTeriminalLinkFn (el, dirName, value, options) {
   var descriptor = dirParser.parse(value)[0]
   var def = options.directives[dirName]
+  // special case: we need to collect directives found
+  // on a component root node, but defined in the parent
+  // template. These directives need to be compiled in
+  // the parent scope.
+  if (dirName === 'component') {
+    var dirs = collectDirectives(el, options, true)
+    el._parentLinker = dirs.length
+      ? makeDirectivesLinkFn(dirs)
+      : null
+  }
   var terminalLinkFn = function (vm, el) {
     vm._bindDir(dirName, el, descriptor, def)
   }
@@ -395,10 +437,11 @@ function makeTeriminalLinkFn (el, dirName, value, options) {
  *
  * @param {Element} el
  * @param {Object} options
+ * @param {Boolean} asParent
  * @return {Array}
  */
 
-function collectDirectives (el, options) {
+function collectDirectives (el, options, asParent) {
   var attrs = _.toArray(el.attributes)
   var i = attrs.length
   var dirs = []
@@ -408,12 +451,15 @@ function collectDirectives (el, options) {
     attrName = attr.name
     if (attrName.indexOf(config.prefix) === 0) {
       dirName = attrName.slice(config.prefix.length)
+      if (
+        asParent &&
+        (dirName === 'with' || dirName === 'ref')
+      ) {
+        continue
+      }
       dirDef = options.directives[dirName]
       _.assertAsset(dirDef, 'directive', dirName)
       if (dirDef) {
-        if (dirName !== 'cloak') {
-          el.removeAttribute(attrName)
-        }
         dirs.push({
           name: dirName,
           descriptors: dirParser.parse(attr.value),

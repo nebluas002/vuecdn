@@ -1,6 +1,6 @@
 {
   "name": "vue",
-  "version": "0.11.0-rc2",
+  "version": "0.11.0-rc3",
   "author": "Evan You <yyx990803@gmail.com>",
   "license": "MIT",
   "description": "Simple, Fast & Composable MVVM for building interative interfaces",
@@ -33,7 +33,10 @@
     "karma-firefox-launcher": "^0.1.3",
     "karma-jasmine": "^0.2.2",
     "karma-phantomjs-launcher": "^0.1.4",
+    "karma-safari-launcher": "^0.1.1",
     "karma-sauce-launcher": "^0.2.10",
+    "semver": "^4.0.3",
+    "shell-task": "^1.0.0",
     "uglify-js": "^2.4.15",
     "webpack": "^1.4.4"
   }

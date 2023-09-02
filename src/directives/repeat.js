@@ -22,10 +22,12 @@ module.exports = {
     if (!this.filters) {
       this.filters = {}
     }
+    // add the object -> array convert filter
+    var objectConverter = _.bind(objToArray, this)
     if (!this.filters.read) {
-      this.filters.read = [objToArray]
+      this.filters.read = [objectConverter]
     } else {
-      this.filters.read.unshift(objToArray)
+      this.filters.read.unshift(objectConverter)
     }
     // setup ref node
     this.ref = document.createComment('v-repeat')
@@ -62,7 +64,6 @@ module.exports = {
    */
 
   checkRef: function () {
-    this.owner = this.vm._owner
     var childId = _.attr(this.el, 'ref')
     this.childId = childId
       ? this.vm.$interpolate(childId)
@@ -94,14 +95,18 @@ module.exports = {
 
   checkComponent: function () {
     var id = _.attr(this.el, 'component')
+    var options = this.vm.$options
     if (!id) {
       this.Ctor = _.Vue // default constructor
       this.inherit = true // inline repeats should inherit
-      this._linker = compile(this.template, this.vm.$options)
+      // important: transclude with no options, just
+      // to ensure block start and block end
+      this.template = transclude(this.template)
+      this._linker = compile(this.template, options)
     } else {
       var tokens = textParser.parse(id)
       if (!tokens) { // static component
-        var Ctor = this.Ctor = this.vm.$options.components[id]
+        var Ctor = this.Ctor = options.components[id]
         _.assertAsset(Ctor, 'component', id)
         if (Ctor) {
           // merge an empty object with owner vm as parent
@@ -133,14 +138,13 @@ module.exports = {
     if (typeof data === 'number') {
       data = range(data)
     }
-    this.converted = data && data._converted
     this.vms = this.diff(data || [], this.vms)
     // update v-ref
     if (this.childId) {
-      this.owner.$[this.childId] = this.vms
+      this.vm.$[this.childId] = this.vms
     }
     if (this.elId) {
-      this.owner.$$[this.elId] = this.vms.map(function (vm) {
+      this.vm.$$[this.elId] = this.vms.map(function (vm) {
         return vm.$el
       })
     }
@@ -279,7 +283,7 @@ module.exports = {
     // resolve constructor
     var Ctor = this.Ctor || this.resolveCtor(data, meta)
     var vm = this.vm.$addChild({
-      el: this.template.cloneNode(true),
+      el: templateParser.clone(this.template),
       _linker: this._linker,
       _meta: meta,
       data: data,
@@ -325,7 +329,7 @@ module.exports = {
 
   unbind: function () {
     if (this.childId) {
-      delete this.owner.$[this.childId]
+      delete this.vm.$[this.childId]
     }
     if (this.vms) {
       var i = this.vms.length
@@ -457,6 +461,10 @@ function findNextVm (vm, ref) {
  * This is the default filter installed to every v-repeat
  * directive.
  *
+ * It will be called with **the directive** as `this`
+ * context so that we can mark the repeat array as converted
+ * from an object.
+ *
  * @param {*} obj
  * @return {Array}
  * @private
@@ -477,7 +485,8 @@ function objToArray (obj) {
       value: obj[key]
     }
   }
-  res._converted = true
+  // `this` points to the repeat directive instance
+  this.converted = true
   return res
 }
 
