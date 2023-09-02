@@ -15,7 +15,9 @@ exports.$mount = function (el) {
     _.warn('$mount() should be called only once.')
     return
   }
-  if (typeof el === 'string') {
+  if (!el) {
+    el = document.createElement('div')
+  } else if (typeof el === 'string') {
     var selector = el
     el = document.querySelector(el)
     if (!el) {
@@ -34,6 +36,7 @@ exports.$mount = function (el) {
     this._initDOMHooks()
     this.$once('hook:attached', ready)
   }
+  return this
 }
 
 /**

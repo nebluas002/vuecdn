@@ -25,7 +25,7 @@ if (_.inBrowser) {
       var vm = new Vue({
         el: el,
         data: {
-          items: [1, 2]
+          items: [2, 1, 2]
         },
         template: '<div v-repeat="items">{{$index}} {{$value}}</div>'
       })
@@ -47,7 +47,7 @@ if (_.inBrowser) {
       var vm = new Vue({
         el: el,
         data: {
-          items: [1, 2]
+          items: [2, 1, 2]
         },
         template: '<div v-repeat="item:items">{{$index}} {{item}}</div>'
       })
@@ -157,6 +157,26 @@ if (_.inBrowser) {
             { type: 'b' },
             { type: 'c' }
           ]
+        },
+        components: {
+          'view-a': {
+            template: 'AAA'
+          },
+          'view-b': {
+            template: 'BBB'
+          },
+          'view-c': {
+            template: 'CCC'
+          }
+        }
+      })
+      expect(el.innerHTML).toBe('<div>AAA</div><div>BBB</div><div>CCC</div><!--v-repeat-->')
+      // #458 meta properties
+      vm = new Vue({
+        el: el,
+        template: '<div v-repeat="list" v-component="view-{{$value}}"></div>',
+        data: {
+          list: ['a', 'b', 'c']
         },
         components: {
           'view-a': {
@@ -502,7 +522,7 @@ function assertPrimitiveMutations (vm, el, done) {
   go(
     function () {
       // check duplicate
-      vm.items.push(2, 3)
+      vm.items.push(2, 2, 3)
     },
     assertMarkup
   )

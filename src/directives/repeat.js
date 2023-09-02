@@ -193,6 +193,7 @@ module.exports = {
         }
       } else { // new instance
         vm = this.build(obj, i)
+        vm._new = true
       }
       vms[i] = vm
       // insert if this is first run
@@ -246,6 +247,7 @@ module.exports = {
           vm.$before(targetNext.$el)
         }
       }
+      vm._new = false
       vm._reused = false
     }
     return vms
@@ -275,7 +277,7 @@ module.exports = {
       meta.$value = raw
     }
     // resolve constructor
-    var Ctor = this.Ctor || this.resolveCtor(data)
+    var Ctor = this.Ctor || this.resolveCtor(data, meta)
     var vm = this.vm.$addChild({
       el: this.template.cloneNode(true),
       _linker: this._linker,
@@ -294,15 +296,22 @@ module.exports = {
    * components depending on instance data.
    *
    * @param {Object} data
+   * @param {Object} meta
    * @return {Function}
    */
 
-  resolveCtor: function (data) {
+  resolveCtor: function (data, meta) {
+    // create a temporary context object and copy data
+    // and meta properties onto it.
+    // use _.define to avoid accidentally overwriting scope
+    // properties.
     var context = Object.create(this.vm)
-    for (var key in data) {
-      // use _.define to avoid accidentally
-      // overwriting scope properties
+    var key
+    for (key in data) {
       _.define(context, key, data[key])
+    }
+    for (key in meta) {
+      _.define(context, key, meta[key])
     }
     var id = this.ctorGetter.call(context, context)
     var Ctor = this.vm.$options.components[id]
@@ -392,10 +401,10 @@ module.exports = {
       if (cached) {
         var i = 0
         var vm = cached[i]
-        // since duplicated vm instances might be reused
-        // already, we need to return the first non-reused
-        // instance.
-        while (vm && vm._reused) {
+        // since duplicated vm instances might be a reused
+        // one OR a newly created one, we need to return the
+        // first instance that is neither of these.
+        while (vm && (vm._reused || vm._new)) {
           vm = cached[++i]
         }
         return vm
